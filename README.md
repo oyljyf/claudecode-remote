@@ -1,5 +1,7 @@
 # claudecode-telegram
 
+![demo](demo.gif)
+
 Telegram bot bridge for Claude Code. Send messages from Telegram, get responses back.
 
 ## How it works
