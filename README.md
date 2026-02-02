@@ -1,117 +1,93 @@
 # claudecode-telegram
 
-![demo](demo.gif)
+> Forked from [hanxiao/claudecode-telegram](https://github.com/hanxiao/claudecode-telegram)
 
 Telegram bot bridge for Claude Code. Send messages from Telegram, get responses back.
 
-## How it works
+![demo](demo.gif)
 
-```mermaid
-flowchart LR
-    A[Telegram] --> B[Cloudflare Tunnel]
-    B --> C[Bridge Server]
-    C -->|tmux send-keys| D[Claude Code]
-    D -->|Stop Hook| E[Read Transcript]
-    E -->|Send Response| A
-```
+## What's New in This Fork
 
-1. Bridge receives Telegram webhooks, injects messages into Claude Code via tmux
-2. Claude Code's Stop hook reads the transcript and sends response back to Telegram
-3. Only responds to Telegram-initiated messages (uses pending file as flag)
+### Simplified Setup Scripts
 
-## Install
+Added `install.sh` and `start.sh` scripts to automate the installation and startup process.
 
-```bash
-# Prerequisites
-brew install tmux cloudflared
+- [Installation Guide](docs/install.md) - One-command setup with automatic dependency installation
+- [Startup Guide](docs/start.md) - Flexible startup options with tmux session management
 
-# Clone
-git clone https://github.com/hanxiao/claudecode-telegram
-cd claudecode-telegram
+### Bidirectional Sync
 
-# Setup Python env
-uv venv && source .venv/bin/activate
-uv pip install -e .
-```
+Full bidirectional sync between Desktop and Telegram:
 
-## Setup
+- **Desktop → Telegram**: User input synced via UserPromptSubmit hook, responses synced via Stop hook
+- **Telegram → Claude Code**: Messages injected into tmux session via bridge
+- **Claude Code → Telegram**: Responses sent back via Stop hook
 
-### 1. Create Telegram bot
+### Log Management
 
-Bot receives your messages and sends Claude's responses back.
+Conversation logs are saved daily for easy review:
 
-```bash
-# Message @BotFather on Telegram, create bot, get token
-```
+- Daily logs: `~/.claude/logs/cc_DDMMYY.log`
+- Debug logs: `~/.claude/logs/debug.log`
+- Cleanup tool: `./scripts/clean-logs.sh [days]`
 
-### 2. Configure Stop hook
+## Commands Reference
 
-Hook triggers when Claude finishes responding, reads transcript, sends to Telegram.
+### Install Commands
 
-```bash
-cp hooks/send-to-telegram.sh ~/.claude/hooks/
-nano ~/.claude/hooks/send-to-telegram.sh  # set your bot token
-chmod +x ~/.claude/hooks/send-to-telegram.sh
-```
+| Command                      | Description                               |
+| ---------------------------- | ----------------------------------------- |
+| `./scripts/install.sh TOKEN` | Install with bot token                    |
+| `--check`                    | Check installation status only            |
+| `--force`                    | Force reinstall even if already installed |
 
-Add to `~/.claude/settings.json`:
-```json
-{
-  "hooks": {
-    "Stop": [{"hooks": [{"type": "command", "command": "~/.claude/hooks/send-to-telegram.sh"}]}]
-  }
-}
-```
+### Start Commands
 
-### 3. Start tmux + Claude
+| Command        | Description                                          |
+| -------------- | ---------------------------------------------------- |
+| *(no args)*    | Start/restart bridge (fix unstable connection)       |
+| `--new`        | Create new tmux session with Claude and start bridge |
+| `--attach`     | Attach to Claude tmux session                        |
+| `--detach`     | Detach from tmux (run from another terminal)         |
+| `--view`       | View recent Claude output without attaching          |
+| `--check`      | Check configuration status                           |
+| `--setup-hook` | Setup Claude hooks for Telegram                      |
+| `--sync`       | Show desktop/Telegram sync instructions              |
 
-tmux keeps Claude Code running persistently; bridge injects messages via `send-keys`.
+### Telegram Commands
 
-```bash
-tmux new -s claude
-claude --dangerously-skip-permissions
-```
+| Command      | Description                    |
+| ------------ | ------------------------------ |
+| `/status`    | Check tmux status              |
+| `/stop`      | Interrupt Claude (Escape)      |
+| `/clear`     | Clear conversation             |
+| `/resume`    | Resume session (shows picker)  |
+| `/continue_` | Continue most recent session   |
+| `/loop`      | Ralph Loop: `/loop <prompt>`   |
 
-### 4. Run bridge
-
-Bridge receives Telegram webhooks and injects messages into Claude Code.
+## Quick Start
 
 ```bash
-export TELEGRAM_BOT_TOKEN="your_token"
-python bridge.py
+# 1. Get bot token from @BotFather on Telegram
+
+# 2. Clone and install
+git clone https://github.com/oyljyf/claudecode-remote
+cd claudecode-remote
+./scripts/install.sh YOUR_TELEGRAM_BOT_TOKEN
+
+# 3. Start
+source ~/.zshrc
+./scripts/start.sh --new
 ```
 
-### 5. Expose via Cloudflare Tunnel
+## Hotfix Connection Issue
 
-Tunnel exposes local bridge to the internet so Telegram can reach it.
+If connection is unstable or messages are not delivered, restart the bridge:
 
 ```bash
-cloudflared tunnel --url http://localhost:8080
+./scripts/start.sh
 ```
 
-### 6. Set webhook
+## License
 
-Tells Telegram where to send message updates.
-
-```bash
-curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=https://YOUR-TUNNEL-URL.trycloudflare.com"
-```
-
-## Bot Commands
-
-| Command | Description |
-|---------|-------------|
-| `/status` | Check tmux session |
-| `/clear` | Clear conversation |
-| `/resume` | Pick session to resume (inline keyboard) |
-| `/continue_` | Auto-continue most recent |
-| `/loop <prompt>` | Start Ralph Loop (5 iterations) |
-| `/stop` | Interrupt Claude |
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TELEGRAM_BOT_TOKEN` | required | Bot token from BotFather |
-| `TMUX_SESSION` | `claude` | tmux session name |
-| `PORT` | `8080` | Bridge port |
+Same as upstream. See [original repository](https://github.com/hanxiao/claudecode-telegram) for details.

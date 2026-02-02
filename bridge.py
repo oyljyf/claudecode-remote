@@ -9,6 +9,7 @@ import time
 import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+from typing import Any
 
 TMUX_SESSION = os.environ.get("TMUX_SESSION", "claude")
 CHAT_ID_FILE = os.path.expanduser("~/.claude/telegram_chat_id")
@@ -90,9 +91,9 @@ def get_recent_sessions(limit=5):
             for line in f:
                 try:
                     sessions.append(json.loads(line.strip()))
-                except:
+                except json.JSONDecodeError:
                     continue
-    except:
+    except (OSError, IOError):
         return []
     sessions.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
     return sessions[:limit]
@@ -129,7 +130,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"Claude-Telegram Bridge")
 
-    def handle_callback(self, cb):
+    def handle_callback(self, cb: dict[str, Any]) -> None:
         chat_id = cb.get("message", {}).get("chat", {}).get("id")
         data = cb.get("data", "")
         telegram_api("answerCallbackQuery", {"callback_query_id": cb.get("id")})
@@ -159,9 +160,11 @@ class Handler(BaseHTTPRequestHandler):
             tmux_send_enter()
             self.reply(chat_id, "Continuing most recent...")
 
-    def handle_message(self, update):
-        msg = update.get("message", {})
-        text, chat_id, msg_id = msg.get("text", ""), msg.get("chat", {}).get("id"), msg.get("message_id")
+    def handle_message(self, update: dict[str, Any]) -> None:
+        msg: dict[str, Any] = update.get("message", {})
+        text: str = msg.get("text", "")
+        chat_id: int | None = msg.get("chat", {}).get("id")
+        _msg_id: int | None = msg.get("message_id")  # noqa: F841
         if not text or not chat_id:
             return
 
@@ -250,8 +253,9 @@ class Handler(BaseHTTPRequestHandler):
         with open(PENDING_FILE, "w") as f:
             f.write(str(int(time.time())))
 
-        if msg_id:
-            telegram_api("setMessageReaction", {"chat_id": chat_id, "message_id": msg_id, "reaction": [{"type": "emoji", "emoji": "\u2705"}]})
+        # Note: setMessageReaction requires bot admin rights, skip if not needed
+        # if msg_id:
+        #     telegram_api("setMessageReaction", {"chat_id": chat_id, "message_id": msg_id, "reaction": [{"type": "emoji", "emoji": "\u2705"}]})
 
         if not tmux_exists():
             self.reply(chat_id, "tmux not found")
@@ -260,12 +264,13 @@ class Handler(BaseHTTPRequestHandler):
 
         threading.Thread(target=send_typing_loop, args=(chat_id,), daemon=True).start()
         tmux_send(text)
+        time.sleep(0.1)  # Small delay to ensure text is received before Enter
         tmux_send_enter()
 
-    def reply(self, chat_id, text):
+    def reply(self, chat_id: int, text: str) -> None:
         telegram_api("sendMessage", {"chat_id": chat_id, "text": text})
 
-    def log_message(self, *args):
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
         pass
 
 
