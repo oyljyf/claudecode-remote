@@ -1,5 +1,7 @@
 # claudecode-telegram
 
+English | [中文文档](docs/README_CN.md)
+
 > Forked from [hanxiao/claudecode-telegram](https://github.com/hanxiao/claudecode-telegram)
 
 Telegram bot bridge for Claude Code. Send messages from Telegram, get responses back.

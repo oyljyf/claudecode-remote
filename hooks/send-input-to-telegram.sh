@@ -2,7 +2,7 @@
 # Claude Code UserPromptSubmit hook - sends user input to Telegram
 # Always logs to file, only sends to Telegram if message is from desktop
 
-TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-8494917259:AAEC63nIymgDzVZEuDl5XEmZTwOyY2ueRMQ}"
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-YOUR_BOT_TOKEN_HERE}"
 CHAT_ID_FILE=~/.claude/telegram_chat_id
 PENDING_FILE=~/.claude/telegram_pending
 LOG_DIR=~/.claude/logs
