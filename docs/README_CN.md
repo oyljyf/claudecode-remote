@@ -59,11 +59,11 @@ source ~/.zshrc  # 或 source ~/.bashrc
 
 ## Telegram 命令
 
-| 命令 | 说明 |
-|------|------|
-| `/status` | 查看状态 |
-| `/stop` | 中断 Claude |
-| `/clear` | 清空对话 |
+| 命令      | 说明         |
+| --------- | ------------ |
+| `/status` | 查看状态     |
+| `/stop`   | 中断 Claude  |
+| `/clear`  | 清空对话     |
 | `/resume` | 恢复历史会话 |
 
 ## 常见问题
@@ -92,4 +92,4 @@ source ~/.zshrc  # 或 source ~/.bashrc
 
 - 对话日志：`~/.claude/logs/cc_DDMMYY.log`
 - 调试日志：`~/.claude/logs/debug.log`
-- 清理日志：`./scripts/clean-logs.sh 7`（保留 7 天）
+- 清理日志：`./scripts/clean-logs.sh 7`（保留 7 天，无参数默认 30 天）

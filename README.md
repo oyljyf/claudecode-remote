@@ -19,9 +19,9 @@ Added `install.sh` and `start.sh` scripts to automate the installation and start
 
 ### Bidirectional Sync
 
-Full bidirectional sync between Desktop and Telegram:
+Full bidirectional sync between Desktop cc and Telegram:
 
-- **Desktop → Telegram**: User input synced via UserPromptSubmit hook, responses synced via Stop hook
+**Desktop cc ⇔ Telegram**: User input synced via UserPromptSubmit hook, responses synced via Stop hook
 - **Telegram → Claude Code**: Messages injected into tmux session via bridge
 - **Claude Code → Telegram**: Responses sent back via Stop hook
 
@@ -58,14 +58,14 @@ Conversation logs are saved daily for easy review:
 
 ### Telegram Commands
 
-| Command      | Description                    |
-| ------------ | ------------------------------ |
-| `/status`    | Check tmux status              |
-| `/stop`      | Interrupt Claude (Escape)      |
-| `/clear`     | Clear conversation             |
-| `/resume`    | Resume session (shows picker)  |
-| `/continue_` | Continue most recent session   |
-| `/loop`      | Ralph Loop: `/loop <prompt>`   |
+| Command      | Description                   |
+| ------------ | ----------------------------- |
+| `/status`    | Check tmux status             |
+| `/stop`      | Interrupt Claude (Escape)     |
+| `/clear`     | Clear conversation            |
+| `/resume`    | Resume session (shows picker) |
+| `/continue_` | Continue most recent session  |
+| `/loop`      | Ralph Loop: `/loop <prompt>`  |
 
 ## Quick Start
 
@@ -89,6 +89,20 @@ If connection is unstable or messages are not delivered, restart the bridge:
 ```bash
 ./scripts/start.sh
 ```
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| Bridge Server | Python + aiohttp |
+| Tunnel | Cloudflare Quick Tunnels |
+| Session Management | tmux |
+| Hooks | Claude Code Stop / UserPromptSubmit hooks |
+| Bot API | Telegram Bot API |
+
+## Roadmap
+
+See [Development Plan](docs/plan/roadmap.md) for upcoming features.
 
 ## License
 

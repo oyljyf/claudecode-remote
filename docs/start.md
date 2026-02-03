@@ -28,17 +28,17 @@
 
 ## 命令选项
 
-| 命令 | 说明 |
-|------|------|
-| `./scripts/start.sh` | 启动/重启 bridge（修复连接不稳定） |
-| `./scripts/start.sh --new` | 创建 tmux + Claude + bridge，自动 attach |
-| `./scripts/start.sh --attach` | 列出 sessions 供选择，然后 attach |
-| `./scripts/start.sh --detach` | 从另一个终端脱离 tmux |
-| `./scripts/start.sh --view` | 查看 Claude 最近输出（不 attach） |
-| `./scripts/start.sh --check` | 检查配置状态 |
-| `./scripts/start.sh --setup-hook` | 配置 Claude hook |
-| `./scripts/start.sh --sync` | 显示桌面/Telegram 同步说明 |
-| `./scripts/start.sh --help` | 显示帮助 |
+| 命令                              | 说明                                     |
+| --------------------------------- | ---------------------------------------- |
+| `./scripts/start.sh`              | 启动/重启 bridge（修复连接不稳定）       |
+| `./scripts/start.sh --new`        | 创建 tmux + Claude + bridge，自动 attach |
+| `./scripts/start.sh --attach`     | 列出 sessions 供选择，然后 attach        |
+| `./scripts/start.sh --detach`     | 从另一个终端脱离 tmux                    |
+| `./scripts/start.sh --view`       | 查看 Claude 最近输出（不 attach）        |
+| `./scripts/start.sh --check`      | 检查配置状态                             |
+| `./scripts/start.sh --setup-hook` | 配置 Claude hook                         |
+| `./scripts/start.sh --sync`       | 显示桌面/Telegram 同步说明               |
+| `./scripts/start.sh --help`       | 显示帮助                                 |
 
 ---
 
@@ -56,22 +56,22 @@
 
 ## Telegram Bot 命令
 
-| 命令 | 说明 |
-|------|------|
-| `/status` | 检查 tmux 状态 |
-| `/stop` | 中断 Claude |
-| `/clear` | 清空对话 |
+| 命令      | 说明             |
+| --------- | ---------------- |
+| `/status` | 检查 tmux 状态   |
+| `/stop`   | 中断 Claude      |
+| `/clear`  | 清空对话         |
 | `/resume` | 恢复历史 session |
 
 ---
 
 ## 环境变量
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `TELEGRAM_BOT_TOKEN` | Bot token（必需） | - |
-| `TMUX_SESSION` | tmux session 名称 | `claude` |
-| `PORT` | Bridge 端口 | `8080` |
+| 变量                 | 说明              | 默认值   |
+| -------------------- | ----------------- | -------- |
+| `TELEGRAM_BOT_TOKEN` | Bot token（必需） | -        |
+| `TMUX_SESSION`       | tmux session 名称 | `claude` |
+| `PORT`               | Bridge 端口       | `8080`   |
 
 ---
 
@@ -156,28 +156,32 @@ cat ~/.claude/settings.json | jq '.hooks'
 
 ## 日志管理
 
-对话记录保存在 `~/.claude/logs/` 目录：
+对话记录会自动保存到本地，方便回顾和调试。
 
-| 文件 | 说明 |
-|------|------|
-| `cc_DDMMYY.log` | 每日对话记录（如 `cc_020226.log`） |
-| `debug.log` | Hook 调试日志 |
+| 日志类型 | 路径                           | 说明            |
+| -------- | ------------------------------ | --------------- |
+| 对话日志 | `~/.claude/logs/cc_DDMMYY.log` | 每日对话记录    |
+| 调试日志 | `~/.claude/logs/debug.log`     | Bridge 调试信息 |
 
-**查看日志：**
+### 查看日志
+
 ```bash
-# 查看今日对话
+# 查看今天的对话日志
 cat ~/.claude/logs/cc_$(date +%d%m%y).log
 
-# 查看调试日志
-tail -50 ~/.claude/logs/debug.log
+# 实时查看调试日志
+tail -f ~/.claude/logs/debug.log
 ```
 
-**清理旧日志：**
+### 清理日志
+
 ```bash
-./scripts/clean-logs.sh       # 删除 30 天前的日志
-./scripts/clean-logs.sh 7     # 删除 7 天前的日志
-```
+# 清理 7 天前的日志
+./scripts/clean-logs.sh 7
 
+# 默认清理 30 天前的日志
+./scripts/clean-logs.sh
+```
 ---
 
 ## 停止服务
