@@ -15,6 +15,8 @@ Telegram bot bridge for Claude Code. Full bidirectional sync between desktop and
 - **Cross-project switching** — Browse projects from Telegram, bridge handles `cd` + Claude restart automatically
 - **Three-state sync** — Active / Paused / Terminated, with logs always recording regardless of state
 - **tmux integration** — Mouse scrollback, 10000-line history, reliable session tracking
+- **Remote permission** — When Claude requests tool permission, Allow/Deny buttons appear in Telegram — no need to return to the desktop terminal
+- **Local alarm** — Plays a sound when Claude stops (task done or needs input), so you never miss it while in another window
 
 ## Requirements
 
@@ -150,6 +152,25 @@ Logs **always** record to `~/.claude/logs/` regardless of sync state.
 | `/status`        | Check tmux, sync, and binding status                 |
 | `/loop <prompt>` | Ralph Loop: auto-iteration mode                      |
 
+## Remote Permission Control
+
+When Claude requests tool permission (e.g. running a command, writing a file), **Allow** and **Deny** buttons appear directly in Telegram. Click to respond — no need to go back to the desktop terminal.
+
+> **Note**: This only works when Claude is started **without** `--dangerously-skip-permissions`. The default `start.sh --new` uses skip-permissions, so permission hooks won't trigger in that mode.
+
+How it works:
+
+```
+Claude needs permission → PermissionRequest hook → Telegram [✅ Allow] [❌ Deny]
+    ↕ (file IPC)
+Bridge ← user clicks button → writes response → hook reads → Claude continues
+```
+
+- 120-second timeout — falls back to terminal dialog if no response
+- Shows tool name and details (command for Bash, file path for Write/Edit)
+
+Setup: `./scripts/start.sh --setup-hook` (included automatically with other hooks).
+
 ## Logs
 
 | Log Type  | Path                             | Description         |
@@ -160,26 +181,47 @@ Logs **always** record to `~/.claude/logs/` regardless of sync state.
 ```bash
 cat ~/.claude/logs/cc_$(date +%m%d%Y).log   # today's chat log
 tail -f ~/.claude/logs/debug.log              # live debug log
-./scripts/clean-logs.sh                       # clean logs older than 30 days
-./scripts/clean-logs.sh 7                     # clean logs older than 7 days
+bash ./scripts/clean-logs.sh                  # clean logs older than 30 days
+bash ./scripts/clean-logs.sh 7                # clean logs older than 7 days
+```
+
+## Local Alarm
+
+A sound plays to alert you whenever Claude needs your attention, even if you're in another window or tmux session.
+
+The alarm triggers on:
+
+| Hook Event     | When it fires                                         |
+| -------------- | ----------------------------------------------------- |
+| `Stop`         | Claude finishes a response (task done or needs input) |
+| `Notification` | Claude asks a question or requests tool permission    |
+
+Place your sound file at `sounds/alarm.mp3` in the project directory, then run `./scripts/start.sh --setup-hook` to install it.
+
+```bash
+touch ~/.claude/alarm_disabled     # disable alarm
+rm ~/.claude/alarm_disabled        # enable alarm
+export ALARM_VOLUME=0.3            # adjust volume (0.0-1.0)
 ```
 
 ## Uninstall
 
 ```bash
-./scripts/uninstall.sh              # interactive uninstall
+./scripts/uninstall.sh              # interactive uninstall (choose components)
+./scripts/uninstall.sh --telegram   # remove only Telegram hooks and bridge
+./scripts/uninstall.sh --alarm      # remove only alarm hook and sounds
 ./scripts/uninstall.sh --all        # remove everything including logs
 ./scripts/uninstall.sh --keep-deps  # keep system dependencies (tmux, cloudflared, jq)
 ./scripts/uninstall.sh --force      # skip confirmation prompts
 ```
 
 **What gets removed:**
-- Hook scripts (`~/.claude/hooks/send-*-telegram.sh`, `~/.claude/hooks/lib/`)
-- Hook config from `settings.json`
-- `TELEGRAM_BOT_TOKEN` from `.zshrc` / `.bashrc`
-- Bridge state files (`telegram_chat_id`, `telegram_pending`, `telegram_sync_*`, etc.)
-- Python virtual environment (`.venv`)
-- Running bridge / cloudflared / tmux processes
+
+| Component | Files removed                                                                                                   |
+| --------- | --------------------------------------------------------------------------------------------------------------- |
+| Telegram  | hooks (`send-*-telegram.sh`, `handle-permission.sh`), bridge state files, env vars, webhook, processes, `.venv` |
+| Alarm     | hook (`play-alarm.sh`), `~/.claude/sounds/`, `alarm_disabled`                                                   |
+| Shared    | `hooks/lib/` (when both removed), `settings.json` hook config                                                   |
 
 **What stays:** Claude Code sessions (`~/.claude/projects/`), Claude Code itself, system deps (unless confirmed).
 
@@ -190,6 +232,8 @@ tail -f ~/.claude/logs/debug.log              # live debug log
 | `TELEGRAM_BOT_TOKEN` | Bot token (required) | -        |
 | `TMUX_SESSION`       | tmux session name    | `claude` |
 | `PORT`               | Bridge port          | `8080`   |
+| `ALARM_VOLUME`       | Alarm sound volume   | `0.5`    |
+| `ALARM_ENABLED`      | Enable/disable alarm | `true`   |
 
 Custom port:
 
@@ -218,19 +262,19 @@ After restart, bridge, cloudflared tunnel, and Telegram webhook will automatical
 
 ## Tech Stack
 
-| Component          | Technology                                |
-| ------------------ | ----------------------------------------- |
-| Bridge Server      | Python (stdlib only)                      |
-| Tunnel             | Cloudflare Quick Tunnels                  |
-| Session Management | tmux                                      |
-| Hooks              | Claude Code Stop / UserPromptSubmit hooks |
-| Bot API            | Telegram Bot API                          |
+| Component          | Technology                                                    |
+| ------------------ | ------------------------------------------------------------- |
+| Bridge Server      | Python (stdlib only)                                          |
+| Tunnel             | Cloudflare Quick Tunnels                                      |
+| Session Management | tmux                                                          |
+| Hooks              | Claude Code Stop / UserPromptSubmit / PermissionRequest hooks |
+| Bot API            | Telegram Bot API                                              |
 
 ## Documentation
 
 - [Installation Guide](docs/install.md) — Install, hooks, and manual setup (Chinese)
 - [Startup Guide](docs/start.md) — Startup options, tmux control, and troubleshooting (Chinese)
-- [Usage Guide](docs/usage.md) — Scenario-based usage for Telegram and desktop (Chinese)
+- [Usage Guide](docs/usage.md) — Scenario-based usage for Telegram and desktop (English)
 
 
 ## License

@@ -360,6 +360,27 @@ setup_hook() {
         exit 1
     fi
 
+    # Copy alarm hook
+    if [ -f "hooks/play-alarm.sh" ]; then
+        cp hooks/play-alarm.sh ~/.claude/hooks/
+        chmod +x ~/.claude/hooks/play-alarm.sh
+        print_status "Hook script (alarm) copied"
+    fi
+
+    # Copy permission hook
+    if [ -f "hooks/handle-permission.sh" ]; then
+        cp hooks/handle-permission.sh ~/.claude/hooks/
+        chmod +x ~/.claude/hooks/handle-permission.sh
+        print_status "Hook script (permission) copied"
+    fi
+
+    # Copy sounds directory
+    if [ -d "sounds" ]; then
+        mkdir -p ~/.claude/sounds
+        cp -n sounds/*.mp3 ~/.claude/sounds/ 2>/dev/null || true
+        print_status "Sound files copied"
+    fi
+
     # Update token in hooks common library
     sed -i '' "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/lib/common.sh 2>/dev/null || \
     sed -i "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/lib/common.sh
@@ -378,6 +399,26 @@ setup_hook() {
             "command": "~/.claude/hooks/send-to-telegram.sh"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/play-alarm.sh"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/play-alarm.sh"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -390,6 +431,18 @@ setup_hook() {
           }
         ]
       }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/handle-permission.sh",
+            "timeout": 120
+          }
+        ]
+      }
     ]
   }
 }'
@@ -397,6 +450,16 @@ setup_hook() {
     if [ -f "$SETTINGS_FILE" ]; then
         if grep -q "send-to-telegram" "$SETTINGS_FILE" 2>/dev/null; then
             print_status "settings.json already has hook configured"
+            # Add alarm hook if missing
+            if ! grep -q "play-alarm" "$SETTINGS_FILE" 2>/dev/null && command -v jq &>/dev/null; then
+                jq '.hooks.Stop += [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/play-alarm.sh"}]}] | .hooks.Notification = [{"matcher": "permission_prompt|elicitation_dialog", "hooks": [{"type": "command", "command": "~/.claude/hooks/play-alarm.sh"}]}]' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+                print_status "Alarm hook added to settings.json (Stop + Notification)"
+            fi
+            # Add permission hook if missing
+            if ! grep -q "handle-permission" "$SETTINGS_FILE" 2>/dev/null && command -v jq &>/dev/null; then
+                jq '.hooks.PermissionRequest = [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/handle-permission.sh", "timeout": 120}]}]' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+                print_status "Permission hook added to settings.json"
+            fi
         else
             print_warning "settings.json exists, please manually add hooks config"
             echo ""

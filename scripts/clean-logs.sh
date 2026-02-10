@@ -21,16 +21,16 @@ while IFS= read -r file; do
     if [ -n "$file" ]; then
         echo "Deleting: $(basename "$file")"
         rm -f "$file"
-        ((count++))
+        count=$((count + 1))
     fi
-done < <(find "$LOG_DIR" -name "cc_*.log" -type f -mtime +$DAYS 2>/dev/null)
+done < <(find "$LOG_DIR" -name "cc_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].log" -type f -mmin +$((DAYS * 1440)) 2>/dev/null)
 
 # Also clean debug.log if older than specified days
 if [ -f "$LOG_DIR/debug.log" ]; then
-    if [ $(find "$LOG_DIR" -name "debug.log" -mtime +$DAYS 2>/dev/null | wc -l) -gt 0 ]; then
+    if [ $(find "$LOG_DIR" -name "debug.log" -mmin +$((DAYS * 1440)) 2>/dev/null | wc -l) -gt 0 ]; then
         echo "Deleting: debug.log"
         rm -f "$LOG_DIR/debug.log"
-        ((count++))
+        count=$((count + 1))
     fi
 fi
 

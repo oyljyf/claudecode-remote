@@ -52,6 +52,12 @@ CB_RESUME = "resume:"
 CB_PROJECT = "project:"
 CB_NEW_IN_PROJECT = "new_in_project:"
 CB_CONTINUE_RECENT = "continue_recent"
+CB_PERM_ALLOW = "perm_allow:"
+CB_PERM_DENY = "perm_deny:"
+
+# Permission request file IPC
+PERM_PENDING_FILE = os.path.expanduser("~/.claude/pending_permission.json")
+PERM_RESPONSE_FILE = os.path.expanduser("~/.claude/permission_response.json")
 
 # Sync state constants
 SYNC_STATE_ACTIVE = "active"
@@ -619,6 +625,11 @@ class Handler(BaseHTTPRequestHandler):
         data = cb.get("data", "")
         telegram_api("answerCallbackQuery", {"callback_query_id": cb.get("id")})
 
+        # Permission callbacks (file IPC only, no tmux needed)
+        if data.startswith(CB_PERM_ALLOW) or data.startswith(CB_PERM_DENY):
+            self._handle_permission_response(chat_id, data)
+            return
+
         if not tmux_exists():
             self.reply(chat_id, "tmux session not found")
             return
@@ -709,6 +720,45 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(chat_id, format_session_message("🟢 New session", current_sid, project_path))
             else:
                 self.reply(chat_id, "⚠️ Starting... (session detection pending)")
+
+    def _handle_permission_response(self, chat_id: int, data: str) -> None:
+        """Write permission response file for hook script to pick up."""
+        if data.startswith(CB_PERM_ALLOW):
+            perm_id = data[len(CB_PERM_ALLOW):]
+            behavior = "allow"
+        else:
+            perm_id = data[len(CB_PERM_DENY):]
+            behavior = "deny"
+
+        if not perm_id:
+            return
+
+        # Validate against pending file
+        if os.path.exists(PERM_PENDING_FILE):
+            try:
+                with open(PERM_PENDING_FILE) as f:
+                    pending = json.load(f)
+                if pending.get("id") != perm_id:
+                    self.reply(chat_id, "Permission request expired or mismatched.")
+                    return
+            except (json.JSONDecodeError, OSError):
+                self.reply(chat_id, "Failed to read pending permission.")
+                return
+        else:
+            self.reply(chat_id, "No pending permission request.")
+            return
+
+        # Write response file for hook to read
+        try:
+            with open(PERM_RESPONSE_FILE, "w") as f:
+                json.dump({"id": perm_id, "behavior": behavior}, f)
+        except OSError as e:
+            self.reply(chat_id, f"Failed to write response: {e}")
+            return
+
+        icon = "✅" if behavior == "allow" else "❌"
+        tool_name = pending.get("tool_name", "unknown")
+        self.reply(chat_id, f"{icon} {behavior.capitalize()}: {tool_name}")
 
     def handle_message(self, update: dict[str, Any]) -> None:
         msg: dict[str, Any] = update.get("message", {})

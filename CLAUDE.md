@@ -75,14 +75,19 @@ grep -rn "YOUR_BOT_TOKEN_HERE" --include="*.sh" .
 
 | File | Purpose |
 |------|---------|
+| `config.env` | Shared defaults: `DEFAULT_PORT`, `DEFAULT_TMUX_SESSION`, `DEFAULT_LOG_DATE_FORMAT` |
 | `bridge.py` | HTTP server: Telegram webhooks, tmux communication, session management, project navigation |
 | `hooks/lib/common.sh` | Shared hook library: Telegram token, file paths, helper functions |
 | `hooks/send-to-telegram.sh` | Stop hook: sends Claude responses to Telegram, always logs |
 | `hooks/send-input-to-telegram.sh` | UserPromptSubmit hook: syncs desktop input to Telegram, always logs |
+| `hooks/handle-permission.sh` | PermissionRequest hook: forwards permission requests to Telegram, file IPC with bridge |
+| `hooks/play-alarm.sh` | Stop hook: plays alarm sound when Claude stops (afplay/paplay/aplay) |
+| `sounds/` | Sound files directory; `alarm.mp3` copied to `~/.claude/sounds/` on install |
 | `scripts/lib/common.sh` | Shared script library: colors, print functions, process helpers, file paths |
 | `scripts/start.sh` | Startup script: tmux/tunnel/webhook management |
 | `scripts/install.sh` | One-command installation |
-| `scripts/uninstall.sh` | Clean uninstallation with tmux/process cleanup |
+| `scripts/uninstall.sh` | Selective uninstallation: `--telegram`, `--alarm`, `--all`, `--keep-deps`, `--force` |
+| `scripts/clean-logs.sh` | Log cleanup: delete logs older than N days (default 30) |
 
 ## Three-State Sync Model
 
@@ -111,6 +116,10 @@ Claude Code encodes project paths: `/Users/foo/my-app` → `-Users-foo-my-app`
 | `~/.claude/telegram_chat_id` | Global fallback chat ID |
 | `~/.claude/telegram_sync_disabled` | Terminated state flag |
 | `~/.claude/telegram_sync_paused` | Paused state flag |
+| `~/.claude/alarm_disabled` | Alarm disabled flag |
+| `~/.claude/sounds/alarm.mp3` | Alarm sound file |
+| `~/.claude/pending_permission.json` | Pending permission request (hook → bridge IPC) |
+| `~/.claude/permission_response.json` | Permission response (bridge → hook IPC) |
 
 ### Session ID Detection (Priority Order)
 
@@ -144,6 +153,7 @@ Claude Code encodes project paths: `/Users/foo/my-app` → `-Users-foo-my-app`
 | `get_projects()` | List projects with session counts |
 | `get_sessions_for_project()` | List sessions for a specific project |
 | `project_hash()` / `project_from_hash()` | Short hash for callback_data (64-byte limit) |
+| `_handle_permission_response()` | Process Allow/Deny callback, write response file for hook |
 
 ## Telegram Commands
 
@@ -218,12 +228,25 @@ User types in Claude Code
   → Always log to ~/.claude/logs/
   → If sync active: send to Telegram API
 
-Claude responds
-  → Stop hook fires
-  → send-to-telegram.sh
-  → Extract text from transcript
-  → Always log to ~/.claude/logs/
-  → If sync active: send to mapped chat_id
+Claude responds/stops
+  → Stop hook fires (two hooks run):
+    1. send-to-telegram.sh → extract text, log, send to Telegram
+    2. play-alarm.sh → play ~/.claude/sounds/alarm.mp3 (background)
+
+Claude asks question / requests permission
+  → Notification hook fires (matcher: permission_prompt|elicitation_dialog):
+    play-alarm.sh → play ~/.claude/sounds/alarm.mp3 (background)
+  → Alarm skipped if: no sound file, alarm_disabled exists, or ALARM_ENABLED=false
+
+Claude requests tool permission (PermissionRequest)
+  → handle-permission.sh hook fires
+  → Extract tool_name, tool_input from stdin JSON
+  → Format message, send Telegram inline keyboard [Allow] [Deny]
+  → Write pending_permission.json (id, tool_name, timestamp)
+  → Poll permission_response.json (1s interval, 120s timeout)
+  → User clicks button in Telegram → Bridge writes response file
+  → Hook reads response → output allow/deny JSON → Claude continues
+  → Timeout → clean up → exit 0 (fall back to terminal dialog)
 ```
 
 ### Cross-Project Session Switch
@@ -254,7 +277,7 @@ User selects session from different project (via /projects or /resume)
 - Hooks are bash scripts with embedded Python for Telegram API
 - Shared config (file paths, token) lives in `hooks/lib/common.sh` and `scripts/lib/common.sh`
 - Token placeholder (`YOUR_BOT_TOKEN_HERE`) is defined in `hooks/lib/common.sh` only; install/setup scripts replace it there
-- `DEFAULT_PORT=8080` is defined in `scripts/lib/common.sh`; `start.sh` uses `PORT=${PORT:-$DEFAULT_PORT}`; `bridge.py` reads `PORT` from env
+- Shared defaults (`DEFAULT_PORT`, `DEFAULT_TMUX_SESSION`, `DEFAULT_LOG_DATE_FORMAT`) are defined in `config.env`; both `scripts/lib/common.sh` and `hooks/lib/common.sh` load from it; `start.sh` uses `PORT=${PORT:-$DEFAULT_PORT}`; `bridge.py` reads `PORT` from env
 - Session files are JSONL format (one JSON object per line)
 - Cloudflare Quick Tunnels provide HTTPS endpoint for webhooks
 - Session poller runs as background daemon thread

@@ -84,9 +84,11 @@ export TELEGRAM_BOT_TOKEN="你的token"
 
 ### 5. 配置 Hooks
 
-Hooks 负责同步 Desktop 和 Telegram：
+Hooks 负责同步 Desktop 和 Telegram、本地提醒和远程权限：
 - `send-to-telegram.sh` (Stop hook) - 将 Claude 的回复发送到 Telegram
 - `send-input-to-telegram.sh` (UserPromptSubmit hook) - 将桌面用户输入同步到 Telegram
+- `handle-permission.sh` (PermissionRequest hook) - 将权限请求转发到 Telegram，用户远程 Allow/Deny
+- `play-alarm.sh` (Stop hook) - Claude 停止时播放提醒音
 
 **方式一：使用 start.sh**
 
@@ -102,8 +104,16 @@ mkdir -p ~/.claude/hooks/lib
 cp hooks/lib/common.sh ~/.claude/hooks/lib/
 cp hooks/send-to-telegram.sh ~/.claude/hooks/
 cp hooks/send-input-to-telegram.sh ~/.claude/hooks/
+cp hooks/handle-permission.sh ~/.claude/hooks/
+cp hooks/play-alarm.sh ~/.claude/hooks/
 chmod +x ~/.claude/hooks/send-to-telegram.sh
 chmod +x ~/.claude/hooks/send-input-to-telegram.sh
+chmod +x ~/.claude/hooks/handle-permission.sh
+chmod +x ~/.claude/hooks/play-alarm.sh
+
+# 复制声音文件
+mkdir -p ~/.claude/sounds
+cp -n sounds/* ~/.claude/sounds/ 2>/dev/null
 
 # 设置 token（token 定义在公共库中）
 sed -i '' "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/lib/common.sh
@@ -123,6 +133,15 @@ sed -i '' "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/lib/commo
             "command": "~/.claude/hooks/send-to-telegram.sh"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/play-alarm.sh"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -132,6 +151,18 @@ sed -i '' "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/lib/commo
           {
             "type": "command",
             "command": "~/.claude/hooks/send-input-to-telegram.sh"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/handle-permission.sh",
+            "timeout": 120
           }
         ]
       }
@@ -173,7 +204,9 @@ sed -i '' "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/lib/commo
 ### 命令选项
 
 ```bash
-./scripts/uninstall.sh              # 交互式卸载
+./scripts/uninstall.sh              # 交互式卸载（选择要移除的组件）
+./scripts/uninstall.sh --telegram   # 仅移除 Telegram hooks 和 bridge
+./scripts/uninstall.sh --alarm      # 仅移除 Alarm hook 和声音文件
 ./scripts/uninstall.sh --all        # 完全卸载（包括日志）
 ./scripts/uninstall.sh --keep-deps  # 保留系统依赖
 ./scripts/uninstall.sh --force      # 跳过确认提示
@@ -181,15 +214,16 @@ sed -i '' "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/lib/commo
 
 ### 卸载内容
 
-| 类别 | 文件/目录 |
-|------|-----------|
-| Hook 脚本 | `~/.claude/hooks/send-*-telegram.sh`, `~/.claude/hooks/lib/` |
-| Hook 配置 | `settings.json` 中的 hooks 配置 |
-| 状态文件 | `telegram_chat_id`, `telegram_pending`, `telegram_sync_disabled`, `telegram_sync_paused`, `current_session_id`, `session_chat_map.json` |
-| 环境变量 | `TELEGRAM_BOT_TOKEN`（从 `.zshrc`/`.bashrc` 移除）|
-| Python 环境 | `.venv` 目录 |
-| 进程 | 运行中的 bridge、cloudflared、tmux session |
-| 临时文件 | `/tmp/tunnel_output.log` |
+| 类别          | 文件/目录                                                                                                                               |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Telegram Hooks | `~/.claude/hooks/send-to-telegram.sh`, `~/.claude/hooks/send-input-to-telegram.sh`, `~/.claude/hooks/handle-permission.sh`, `~/.claude/hooks/lib/` |
+| Alarm Hook    | `~/.claude/hooks/play-alarm.sh`, `~/.claude/sounds/`, `~/.claude/alarm_disabled`                                                        |
+| Hook 配置     | `settings.json` 中的 hooks 配置                                                                                                         |
+| 状态文件      | `telegram_chat_id`, `telegram_pending`, `telegram_sync_disabled`, `telegram_sync_paused`, `current_session_id`, `session_chat_map.json`, `pending_permission.json`, `permission_response.json` |
+| 环境变量      | `TELEGRAM_BOT_TOKEN`（从 `.zshrc`/`.bashrc` 移除）                                                                                      |
+| Python 环境   | `.venv` 目录                                                                                                                            |
+| 进程          | 运行中的 bridge、cloudflared、tmux session                                                                                              |
+| 临时文件      | `/tmp/tunnel_output.log`                                                                                                                |
 
 ### `--all` 额外移除
 
@@ -201,17 +235,6 @@ sed -i '' "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/lib/commo
 - Claude Code 会话文件 (`~/.claude/projects/`)
 - Claude Code 本身
 - 系统依赖 (`tmux`, `cloudflared`, `jq`)（除非用户确认删除）
-
----
-
-## 附加工具
-
-### 日志清理
-
-```bash
-./scripts/clean-logs.sh       # 删除 30 天前的日志
-./scripts/clean-logs.sh 7     # 删除 7 天前的日志
-```
 
 ---
 

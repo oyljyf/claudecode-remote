@@ -1,8 +1,8 @@
 # Refactoring & Unit Test Plan
 
-- Version: 1.0.0
-- Updated at: 2026-02-09 22:38:03
-- Status: Implemented
+- Version: 1.0.3
+- Updated at: 2026-02-10 08:20:00
+- Status: Implemented (162 tests)
 
 ---
 
@@ -119,19 +119,22 @@ Validate non-empty, length < 128.
 | `is_shell_prompt()`     | `"user@host $"` yes; `"~ %"` yes; `"root #"` yes; `">"` yes; `"-> project"` yes; `"Claude..."` no; empty no; all blanks no |
 | `filter_window_title()` | UUID -> returns; "bash" -> None; "zsh" -> None; empty -> None                                                              |
 
-### `tests/test_handler.py` (~20 tests, mocked I/O)
+### `tests/test_handler.py` (~34 tests, mocked I/O)
 
-| Command      | Cases                                         |
-| ------------ | --------------------------------------------- |
-| `/status`    | tmux up+active; tmux down; paused; terminated |
-| `/start`     | tmux exists; tmux missing                     |
-| `/stop`      | creates paused flag                           |
-| `/escape`    | sends escape; tmux missing                    |
-| `/terminate` | creates disabled flag                         |
-| `/continue`  | clears flags; finds session; no sessions      |
-| `/resume`    | keyboard with sessions; no sessions           |
-| `/projects`  | keyboard with projects; no projects           |
-| Regular msg  | active -> tmux; paused -> reject; auto-binds  |
+| Test Class | Cases |
+| --- | --- |
+| `TestStatusCommand` | tmux up+active; tmux down; paused; terminated |
+| `TestStartCommand` | tmux exists; tmux missing |
+| `TestStopCommand` | creates paused flag |
+| `TestEscapeCommand` | sends escape; tmux missing |
+| `TestTerminateCommand` | creates disabled flag |
+| `TestContinueCommand` | clears flags+finds session; no sessions |
+| `TestResumeCommand` | keyboard with sessions; no sessions |
+| `TestProjectsCommand` | keyboard with projects; no projects |
+| `TestRegularMessage` | active->tmux; paused->reject; terminated->reject; auto-binds |
+| `TestPermissionCallback` | allow; deny; expired; no pending; allow no tmux needed |
+| `TestPermissionEndToEnd` | allow produces correct JSON; deny produces correct JSON; response file cleaned after read; stale response ignored; telegram confirmation message |
+| `TestParseCallbackData` | valid; empty value; too long; wrong prefix |
 
 ---
 
@@ -160,14 +163,18 @@ Post-refactor regression tests to ensure common.sh usage stays consistent.
 
 | Test Class | Cases |
 | --- | --- |
-| `TestScriptsLibCommon` | defines all shared path vars; defines print functions |
+| `TestScriptsLibCommon` | defines all shared path vars (incl PERM_PENDING_FILE, PERM_RESPONSE_FILE); defines print functions |
 | `TestHooksLibCommon` | defines shared path vars; defines token; defines helper functions |
 | `TestPathConsistency` | both common.sh files define identical paths |
-| `TestHookScriptsSourceCommon` | hook scripts source lib/common.sh; no hardcoded token in hooks |
+| `TestHookScriptsSourceCommon` | all 4 hook scripts (send-to-telegram, send-input-to-telegram, play-alarm, handle-permission) source lib/common.sh; no hardcoded token in telegram hooks |
 | `TestScriptsSourceCommon` | all 4 scripts (start, install, uninstall, clean-logs) source lib/common.sh |
 | `TestTokenReplacementTarget` | install.sh/start.sh sed targets common.sh; grep checks target common.sh |
 | `TestNoHardcodedStateFiles` | no hardcoded SYNC_DISABLED_FILE/PENDING_FILE/LOG_DIR assignments in scripts |
 | `TestSetupHookCopiesLib` | install.sh and start.sh --setup-hook copy hooks/lib/ |
+| `TestAlarmHookIntegration` | play-alarm.sh exists, is executable, sources common.sh, checks disabled flag, runs in background; install.sh/start.sh copy alarm hook + sounds + settings.json includes alarm + Notification hook; uninstall.sh removes alarm hook + sounds + alarm_disabled |
+| `TestPermissionHookIntegration` | handle-permission.sh exists, sources common.sh, checks sync, reads stdin, uses jq; install.sh/start.sh copy permission hook + settings.json includes PermissionRequest with timeout 120; uninstall.sh removes permission hook + settings + state files |
+| `TestUninstallComponentFlags` | supports --telegram/--alarm/--all/--keep-deps/--force flags; interactive chooser (Telegram/Alarm/Both); --force defaults both; REMOVE_TELEGRAM/REMOVE_ALARM guards; hooks/lib only when both; selective jq for telegram-only and alarm-only; removes Notification hooks; processes/env vars under telegram guard; --all removes logs; deps only with telegram |
+| `TestCleanLogsScript` | uses -mmin not -mtime; DAYS * 1440 calculation; targets cc_[0-9]{8}.log (MMDDYYYY only); cleans debug.log; default 30 days |
 
 ---
 
@@ -192,12 +199,13 @@ Post-refactor regression tests to ensure common.sh usage stays consistent.
 | `tests/test_session.py`           | New (~10 tests)                                   |
 | `tests/test_sync_state.py`        | New (~7 tests)                                    |
 | `tests/test_tmux_detection.py`    | New (~12 tests)                                   |
-| `tests/test_handler.py`           | New (~20 tests)                                   |
+| `tests/test_handler.py`           | New (~34 tests)                                   |
 | `scripts/lib/common.sh`           | New                                               |
 | `hooks/lib/common.sh`             | New                                               |
 | `hooks/send-to-telegram.sh`       | Source common.sh, remove duplication              |
 | `hooks/send-input-to-telegram.sh` | Source common.sh, remove duplication              |
-| `tests/test_shell_scripts.py`     | New (~26 tests)                                   |
+| `hooks/handle-permission.sh`      | New (PermissionRequest hook)                      |
+| `tests/test_shell_scripts.py`     | New (~76 tests)                                   |
 | `scripts/start.sh`                | Source common.sh, update --setup-hook             |
 | `scripts/install.sh`              | Source common.sh                                  |
 | `scripts/uninstall.sh`            | Source common.sh                                  |
@@ -207,8 +215,9 @@ Post-refactor regression tests to ensure common.sh usage stays consistent.
 
 ## Verification
 
-1. `pytest tests/ -v` -- all 102 tests pass (76 Python + 26 shell script consistency)
+1. `pytest tests/ -v` -- all 162 tests pass (86 Python + 76 shell script consistency)
 2. `./scripts/start.sh --new` -> Telegram message -> response back
 3. `./scripts/start.sh --setup-hook` -> hooks + lib copied correctly
 4. Test `/status`, `/stop`, `/escape`, `/resume`, `/projects`, `/continue` from Telegram
 5. Verify logs written when sync paused/terminated
+6. Permission request -> Telegram Allow/Deny buttons -> Claude continues

@@ -29,7 +29,7 @@
 
 ---
 
-## 命令选项
+## bash 命令选项
 
 | 命令                              | 说明                                     |
 | --------------------------------- | ---------------------------------------- |
@@ -70,38 +70,27 @@ tmux session 创建时自动配置：
 
 ## Telegram Bot 命令
 
-| 命令             | 说明                                      |
-| ---------------- | ----------------------------------------- |
-| `/start`         | 新建 Claude 对话                          |
+| 命令             | 说明                                                   |
+| ---------------- | ------------------------------------------------------ |
+| `/start`         | 新建 Claude 对话                                       |
 | `/stop`          | 暂停同步（用 `/start`、`/resume` 或 `/continue` 恢复） |
-| `/escape`        | 中断 Claude（发送 Escape 键）             |
-| `/terminate`     | 彻底断开（需 `/start` 重连）              |
-| `/resume`        | 恢复 session（显示选择列表）              |
-| `/continue`      | 继续最近的 session                        |
-| `/projects`      | 浏览项目并选择 session                    |
-| `/bind`          | 绑定当前 session 到聊天                   |
-| `/clear`         | 清空对话                                  |
-| `/status`        | 查看 tmux、同步、绑定状态                 |
-| `/loop <prompt>` | Ralph Loop：自动迭代模式                  |
+| `/escape`        | 中断 Claude（发送 Escape 键）                          |
+| `/terminate`     | 彻底断开（需 `/start` 重连）                           |
+| `/resume`        | 恢复 session（显示选择列表）                           |
+| `/continue`      | 继续最近的 session                                     |
+| `/projects`      | 浏览项目并选择 session                                 |
+| `/bind`          | 绑定当前 session 到聊天                                |
+| `/clear`         | 清空对话                                               |
+| `/status`        | 查看 tmux、同步、绑定状态                              |
+| `/loop <prompt>` | Ralph Loop：自动迭代模式                               |
 
 ---
 
-## 环境变量
+## 远程权限控制
 
-| 变量                 | 说明              | 默认值   |
-| -------------------- | ----------------- | -------- |
-| `TELEGRAM_BOT_TOKEN` | Bot token（必需） | -        |
-| `TMUX_SESSION`       | tmux session 名称 | `claude` |
-| `PORT`               | Bridge 端口       | `8080`   |
+当 Claude 请求工具权限时（如执行命令、写文件），Telegram 会显示 **✅ Allow** 和 **❌ Deny** 按钮。
 
-自定义端口：
-
-```bash
-export PORT=9090
-./scripts/start.sh
-```
-
-重启后 bridge、cloudflared tunnel、Telegram webhook 会自动使用新端口，无需额外操作。
+> 仅在不使用 `--dangerously-skip-permissions` 启动 Claude 时生效。120 秒超时后回退到终端对话框。
 
 ---
 
@@ -185,29 +174,6 @@ tmux session 创建时自动启用 `mouse on` 和 `history-limit 10000`。如果
 ### Bridge 显示 "python: command not found"
 
 确保 `.venv` 已创建且 `python3` 可用。
-
----
-
-## 日志管理
-
-| 日志类型 | 路径                             | 说明            |
-| -------- | -------------------------------- | --------------- |
-| 对话日志 | `~/.claude/logs/cc_MMDDYYYY.log` | 每日对话记录    |
-| 调试日志 | `~/.claude/logs/debug.log`       | Bridge 调试信息 |
-
-日志在 Paused 和 Terminated 状态下仍然记录。
-
-```bash
-# 查看今天的对话日志
-cat ~/.claude/logs/cc_$(date +%m%d%Y).log
-
-# 实时查看调试日志
-tail -f ~/.claude/logs/debug.log
-
-# 清理旧日志
-./scripts/clean-logs.sh 7     # 保留 7 天
-./scripts/clean-logs.sh       # 默认保留 30 天
-```
 
 ---
 

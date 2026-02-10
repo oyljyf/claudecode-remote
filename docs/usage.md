@@ -1,298 +1,281 @@
-# 使用场景指南
+# Usage Guide
 
-## 目录
+## Concepts
 
-- [使用场景指南](#使用场景指南)
-  - [目录](#目录)
-  - [概念说明](#概念说明)
-    - [Session（对话）](#session对话)
-    - [同步方向](#同步方向)
-    - [共享机制](#共享机制)
-    - [自动绑定](#自动绑定)
-- [Telegram 端场景](#telegram-端场景)
-  - [场景 1：首次连接 Telegram](#场景-1首次连接-telegram)
-  - [场景 2：外出时用 Telegram 继续工作](#场景-2外出时用-telegram-继续工作)
-  - [场景 3：从 Telegram 切换 Session](#场景-3从-telegram-切换-session)
-    - [方法 A：选择列表](#方法-a选择列表)
-    - [方法 B：快速恢复](#方法-b快速恢复)
-  - [场景 4：从 Telegram 切换 Project](#场景-4从-telegram-切换-project)
-  - [场景 5：从 Telegram 暂停同步](#场景-5从-telegram-暂停同步)
-  - [场景 6：从 Telegram 中断 Claude](#场景-6从-telegram-中断-claude)
-  - [场景 7：从 Telegram 彻底断开](#场景-7从-telegram-彻底断开)
-  - [场景 8：从 Telegram 重连](#场景-8从-telegram-重连)
-    - [新建对话](#新建对话)
-    - [恢复已有 session](#恢复已有-session)
-    - [快速恢复最近 session](#快速恢复最近-session)
-  - [场景 9：查看状态](#场景-9查看状态)
-- [桌面端场景](#桌面端场景)
-  - [场景 10：首次启动](#场景-10首次启动)
-  - [场景 11：日常使用（桌面为主）](#场景-11日常使用桌面为主)
-  - [场景 12：重启 Bridge](#场景-12重启-bridge)
-  - [场景 13：查看 Claude 输出](#场景-13查看-claude-输出)
-  - [场景 14：为不同项目创建 Session](#场景-14为不同项目创建-session)
-  - [场景 15：从桌面断开同步](#场景-15从桌面断开同步)
-  - [场景 16：更新 Hook 脚本](#场景-16更新-hook-脚本)
-  - [场景 17：完全停止服务](#场景-17完全停止服务)
-  - [命令速查](#命令速查)
-  - [常见问题](#常见问题)
-    - [Q: 切换 session 后桌面 Claude 断开了？](#q-切换-session-后桌面-claude-断开了)
-    - [Q: 发消息提示 "Not bound"？](#q-发消息提示-not-bound)
-    - [Q: `/stop` 和 `/escape` 有什么区别？](#q-stop-和-escape-有什么区别)
-    - [Q: 切换到其他项目的 session 提示 "session not found"？](#q-切换到其他项目的-session-提示-session-not-found)
-    - [Q: Telegram 命令没有更新（看不到新命令）？](#q-telegram-命令没有更新看不到新命令)
-    - [Q: 如何更新 bot 命令但不重装？](#q-如何更新-bot-命令但不重装)
+### Session
+Each Claude conversation has a unique session ID (UUID), stored at `~/.claude/projects/<project>/<session-id>.jsonl`.
+
+### Sync Direction
+- **Desktop → Telegram**: Sent automatically via hook scripts (triggered on every Claude response and user input)
+- **Telegram → Desktop**: Forwarded by bridge to the Claude process in tmux
+
+### Shared Terminal
+Desktop and Telegram share the same tmux terminal. Messages sent from Telegram are visible on desktop; Claude's desktop responses are also sent to Telegram.
+
+### Auto-binding
+The bridge auto-binds sessions:
+- If the current session is not bound to any chat, the first Telegram message auto-binds it
+- A background session poller detects new sessions every 5 seconds and auto-binds
+- No need to manually run `/bind` (unless you need to force re-bind)
 
 ---
 
-## 概念说明
+# Telegram Scenarios
 
-### Session（对话）
-每次与 Claude 的对话都有一个唯一session ID（UUID），存储在 `~/.claude/projects/<项目名>/<session-id>.jsonl`。
+## Scenario 1: First Telegram Connection
 
-### 同步方向
-- **桌面 → Telegram**：通过 Hook 脚本自动发送（Claude 每次回复和用户输入触发）
-- **Telegram → 桌面**：通过 Bridge 转发到 tmux 中的 Claude 进程
+**Prerequisite**: Bridge is running on desktop (`./scripts/start.sh --new` or `./scripts/start.sh`)
 
-### 共享机制
-桌面和 Telegram 共享同一个 tmux 终端。你在 Telegram 发的消息，桌面能看到；Claude 在桌面的回复，Telegram 也能收到。
+1. Open the Telegram bot chat
+2. Send any message
 
-### 自动绑定
-Bridge 具有自动绑定功能：
-- 如果当前 session 未绑定到任何 chat，首条 Telegram 消息会自动绑定
-- 后台 session 轮询器每 5 秒检测新 session 并自动绑定
-- 无需手动执行 `/bind`（除非需要强制重绑）
+The bridge auto-detects the current session and binds it. If you see a prompt to bind, send `/bind`.
 
 ---
 
-# Telegram 端场景
+## Scenario 2: Continue Working from Telegram While Away
 
-## 场景 1：首次连接 Telegram
+**Goal**: Send messages to desktop Claude from Telegram
 
-**前提**：桌面已运行 bridge（`./scripts/start.sh --new` 或 `./scripts/start.sh`）
+**Prerequisite**: Bridge is running on desktop
 
-1. 打开 Telegram bot 聊天
-2. 直接发送一条消息
+1. Open the Telegram bot chat
+2. Send your message
 
-Bridge 会自动检测当前 session 并绑定。如果看到提示说需要绑定，发送 `/bind` 即可。
+> Messages are injected into Claude in the desktop tmux session. Claude's responses sync back to Telegram.
 
----
-
-## 场景 2：外出时用 Telegram 继续工作
-
-**目标**：从 Telegram 发消息给桌面的 Claude
-
-**前提**：Bridge 已在桌面运行
-
-1. 打开 Telegram bot 聊天
-2. 直接发送消息即可
-
-> 消息会注入到桌面 tmux 中的 Claude，Claude 的回复也会同步回 Telegram。
-
-如果看到 "Not bound" 提示：
-- 发送 `/bind` 绑定当前 session
-- 或发送 `/continue` 连接到最近的 session
+If you see "Not bound":
+- Send `/bind` to bind the current session
+- Or send `/continue` to connect to the most recent session
 
 ---
 
-## 场景 3：从 Telegram 切换 Session
+## Scenario 3: Switch Sessions from Telegram
 
-**目标**：切换 Claude 的对话（桌面自动跟随）
+**Goal**: Switch Claude conversations (desktop follows automatically)
 
-### 方法 A：选择列表
+### Method A: Session Picker
 ```
 /resume
 ```
-显示当前项目最近的 session 列表（完整 UUID + 时间），点击选择。
+Shows a list of recent sessions (full UUID + timestamp) for the current project. Tap to select.
 
-### 方法 B：快速恢复
+### Method B: Quick Resume
 ```
 /continue
 ```
-直接恢复最近修改的 session。
+Resumes the most recently modified session.
 
-> **注意**：切换 session 时桌面 Claude 会短暂重启（1-2 秒），这是正常行为。跨项目切换时会自动 `cd` 到目标项目目录。
+> **Note**: When switching sessions, desktop Claude briefly restarts (1-2 seconds). Cross-project switches auto-`cd` to the target project directory.
 
 ---
 
-## 场景 4：从 Telegram 切换 Project
+## Scenario 4: Switch Projects from Telegram
 
-**目标**：浏览不同项目并选择 session
+**Goal**: Browse different projects and select a session
 
 ```
 /projects
 ```
 
-1. 显示项目列表（完整路径，按最近活跃排序）
-2. 点击某个项目 → 显示该项目下的 session 列表
-3. 点击 session 恢复，或点击 "新建 session"
+1. Shows project list (full paths, sorted by recent activity)
+2. Tap a project → shows its session list
+3. Tap a session to resume, or tap "New session"
 
-> 只显示 30 天内活跃、非空、格式正确的 session。
+> Only shows sessions that are active within 30 days, non-empty, and properly formatted.
 
-跨项目操作时，Bridge 会自动：
-1. 退出当前 Claude
-2. `cd` 到目标项目目录
-3. 启动 Claude 并恢复/新建 session
+Cross-project operations automatically:
+1. Exit current Claude
+2. `cd` to the target project directory
+3. Start Claude and resume/create session
 
 ---
 
-## 场景 5：从 Telegram 暂停同步
+## Scenario 5: Pause Sync from Telegram
 
-**目标**：暂时停止双向同步（不断开连接）
+**Goal**: Temporarily stop bidirectional sync (without disconnecting)
 
 ```
 /stop
 ```
 
-效果：
-- Telegram 消息不再转发到桌面
-- 桌面的 Claude 回复不再发送到 Telegram
-- **日志仍然记录**（`~/.claude/logs/` 中继续写入）
-- 桌面 Claude 正常使用不受影响
+Effects:
+- Telegram messages no longer forwarded to desktop
+- Desktop Claude responses no longer sent to Telegram
+- **Logs still recorded** (continue writing to `~/.claude/logs/`)
+- Desktop Claude works normally, unaffected
 
-恢复方法：
+To resume:
 ```
-/start      ← 新建对话并恢复
-/resume     ← 选择 session 并恢复
-/continue   ← 继续最近 session 并恢复
+/start      ← start new conversation and resume
+/resume     ← pick a session and resume
+/continue   ← continue most recent session and resume
 ```
 
 ---
 
-## 场景 6：从 Telegram 中断 Claude
+## Scenario 6: Interrupt Claude from Telegram
 
-**目标**：Claude 正在执行长任务，想打断它
+**Goal**: Claude is running a long task and you want to stop it
 
 ```
 /escape
 ```
 
-等同于在桌面按 `Escape` 键。Claude 会停止当前操作，等待新输入。**同步状态不变**。
+Equivalent to pressing `Escape` on desktop. Claude stops the current operation and waits for new input. **Sync state is unchanged**.
 
-> `/escape` vs `/stop`：`/escape` 只中断 Claude 当前操作，同步保持活跃；`/stop` 暂停整个同步通道。
+> `/escape` vs `/stop`: `/escape` only interrupts Claude's current operation, sync stays active; `/stop` pauses the entire sync channel.
 
 ---
 
-## 场景 7：从 Telegram 彻底断开
+## Scenario 7: Fully Disconnect from Telegram
 
-**目标**：完全停止同步
+**Goal**: Completely stop sync
 
 ```
 /terminate
 ```
 
-效果：
-- 同步完全停止
-- 需要 `/start` 或 `/resume` 才能重连
-- 日志仍然记录
+Effects:
+- Sync fully stopped
+- Need `/start` or `/resume` to reconnect
+- Logs still recorded
 
 ---
 
-## 场景 8：从 Telegram 重连
+## Scenario 8: Approve Permission Requests from Telegram
 
-### 新建对话
+**Goal**: Claude needs tool permission (Bash, Write, etc.) and you're away from the desktop
+
+**Prerequisite**: Claude started **without** `--dangerously-skip-permissions`, bridge running
+
+When Claude requests permission, Telegram shows:
+
+```
+🔐 Permission Request
+
+Tool: Bash
+$ npm install
+
+[✅ Allow]  [❌ Deny]
+```
+
+Tap **Allow** to let Claude proceed, or **Deny** to reject.
+
+- 120-second timeout — if no response, falls back to the terminal dialog
+- Shows tool name and details (command for Bash, file path for Write/Edit)
+- Works even if tmux is down (uses file IPC, not tmux)
+
+> **Note**: Default `start.sh --new` uses `--dangerously-skip-permissions`, which skips all permission checks. To use remote permission, start Claude without that flag.
+
+---
+
+## Scenario 9: Reconnect from Telegram
+
+### Start New Conversation
 ```
 /start
 ```
 
-### 恢复已有 session
+### Resume Existing Session
 ```
 /resume
 ```
 
-### 快速恢复最近 session
+### Quick Resume Most Recent Session
 ```
 /continue
 ```
 
-以上命令都会自动清除暂停/断开状态，恢复同步。
+All commands above auto-clear paused/terminated state and restore sync.
 
 ---
 
-## 场景 9：查看状态
+## Scenario 10: Check Status
 
 ```
 /status
 ```
 
-显示信息：
-- tmux session 状态（running / not found）
-- 同步状态（active / paused / terminated）
-- 当前 session ID
-- 绑定状态（是否绑定到当前 chat）
+Shows:
+- tmux session state (running / not found)
+- Sync state (active / paused / terminated)
+- Current session ID
+- Binding state (whether bound to current chat)
 
 ---
 
-# 桌面端场景
+# Desktop Scenarios
 
-## 场景 10：首次启动
+## Scenario 11: First Launch
 
-**目标**：创建 tmux session + 启动 Claude + 启动 Bridge + 连接 Telegram
+**Goal**: Create tmux session + start Claude + start bridge + connect Telegram
 
 ```bash
-# 1. 确保环境变量已设置
+# 1. Make sure env var is set
 echo $TELEGRAM_BOT_TOKEN
 
-# 2. 安装 Hook（首次需要）
+# 2. Install hooks (first time only)
 ./scripts/start.sh --setup-hook
 
-# 3. 创建新 session 并启动所有服务
+# 3. Create new session and start all services
 ./scripts/start.sh --new
 
-# 或者指定项目目录
+# Or specify a project directory
 ./scripts/start.sh --new ~/Projects/my-app
 ```
 
-启动后会自动 attach 到 tmux。在 Telegram 发一条消息测试同步。
+After launch, it auto-attaches to tmux. Send a Telegram message to test sync.
 
 ---
 
-## 场景 11：日常使用（桌面为主）
+## Scenario 12: Daily Use (Desktop-first)
 
-**目标**：在桌面使用 Claude Code，Telegram 自动接收通知
+**Goal**: Use Claude Code on desktop, Telegram auto-receives notifications
 
 ```bash
-# 启动 Bridge（tmux session 已存在）
+# Start bridge (tmux session must already exist)
 ./scripts/start.sh
 ```
 
-- 桌面正常使用 Claude Code
-- 你的每条输入和 Claude 的回复会自动同步到 Telegram
-- 无需在 Telegram 做任何操作
+- Use Claude Code on desktop as normal
+- Your inputs and Claude's responses auto-sync to Telegram
+- No action needed on Telegram
 
 ---
 
-## 场景 12：重启 Bridge
+## Scenario 13: Restart Bridge
 
-**目标**：连接不稳定或消息不同步时
+**Goal**: Fix unstable connection or out-of-sync messages
 
 ```bash
 ./scripts/start.sh
 ```
 
-会自动：
-1. 停止旧的 bridge 和 tunnel 进程
-2. 启动新的 bridge
-3. 创建新的 cloudflared tunnel
-4. 设置 Telegram webhook
-5. 注册最新的 bot 命令列表
+Automatically:
+1. Stops old bridge and tunnel processes
+2. Starts new bridge
+3. Creates new cloudflared tunnel
+4. Sets Telegram webhook
+5. Registers latest bot command list
 
 ---
 
-## 场景 13：查看 Claude 输出
+## Scenario 14: View Claude Output
 
-**目标**：不进入 tmux，快速查看 Claude 最近输出
+**Goal**: Quickly view recent Claude output without entering tmux
 
 ```bash
 ./scripts/start.sh --view
 ```
 
-如果需要进入交互：
+To enter interactive mode:
 
 ```bash
 ./scripts/start.sh --attach
 ```
 
-从 tmux 退出（从另一个终端）：
+To exit tmux (from another terminal):
 
 ```bash
 ./scripts/start.sh --detach
@@ -300,90 +283,90 @@ echo $TELEGRAM_BOT_TOKEN
 
 ---
 
-## 场景 14：为不同项目创建 Session
+## Scenario 15: Create Session for a Different Project
 
-**目标**：在指定项目目录启动新的 Claude session
+**Goal**: Start a new Claude session in a specific project directory
 
 ```bash
 ./scripts/start.sh --new ~/Projects/another-project
 ```
 
-tmux session 的工作目录会设为指定路径，Claude 会在该目录启动。
+The tmux session working directory is set to the specified path, and Claude starts in that directory.
 
 ---
 
-## 场景 15：从桌面断开同步
+## Scenario 16: Disconnect Sync from Desktop
 
-**目标**：暂时停止桌面→Telegram 同步
+**Goal**: Stop desktop → Telegram sync
 
 ```bash
 ./scripts/start.sh --terminate
 ```
 
-效果同 Telegram `/terminate`，完全停止同步。重启 bridge 即可恢复。
+Same effect as Telegram `/terminate`. Fully stops sync. Restart bridge to resume.
 
 ---
 
-## 场景 16：更新 Hook 脚本
+## Scenario 17: Update Hook Scripts
 
-**目标**：代码更新后，重新安装 hook
+**Goal**: Reinstall hooks after a code update
 
 ```bash
-# 更新 hook 脚本
+# Update hook scripts
 ./scripts/start.sh --setup-hook
 
-# 重启 bridge（注册最新命令）
+# Restart bridge (registers latest commands)
 ./scripts/start.sh
 ```
 
-无需重装整个项目。
+No need to reinstall the entire project.
 
 ---
 
-## 场景 17：完全停止服务
+## Scenario 18: Fully Stop All Services
 
-**目标**：停止所有相关进程
+**Goal**: Stop all related processes
 
 ```bash
-# 方法 1：
+# Method 1:
 ./scripts/start.sh --terminate
 
-# 方法 2：在 bridge 终端按 Ctrl+C
+# Method 2: Press Ctrl+C in the bridge terminal
 ```
 
-如果需要，也可以手动清理：
+Or manually clean up:
 
 ```bash
-./scripts/start.sh --detach     # 先脱离 tmux
-./scripts/start.sh --terminate  # 终止所有进程
+./scripts/start.sh --detach     # detach from tmux first
+./scripts/start.sh --terminate  # terminate all processes
 ```
 
 ---
 
-## 命令速查
+## Quick Reference
 
-完整命令表见 [启动指南](start.md)。
+Full command tables in [Startup Guide](start.md).
 
 ---
 
-## 常见问题
+## FAQ
 
-> 安装相关问题见 [安装指南](install.md#常见问题)，连接/日志问题见 [启动指南](start.md#常见问题)。
+> For install issues see [Installation Guide](install.md#faq). For connection/log issues see [Startup Guide](start.md#troubleshooting).
 
-### Q: 切换 session 后桌面 Claude 断开了？
-A: 这是正常行为。从 Telegram 切换 session 时，Claude 会短暂退出并重启（1-2 秒）。Bridge 会自动处理。跨项目切换时会先 `cd` 到目标项目目录再启动。
+### Q: Desktop Claude disconnected after switching session?
+A: This is expected. When switching sessions from Telegram, Claude briefly exits and restarts (1-2 seconds). The bridge handles this automatically. Cross-project switches `cd` to the target project directory first.
 
-### Q: 发消息提示 "Not bound"？
-A: 发送 `/bind` 绑定当前 session，或者直接再发一条消息（自动绑定）。
+### Q: "Not bound" when sending a message?
+A: Send `/bind` to bind the current session, or just send another message (auto-binds).
 
-### Q: `/stop` 和 `/escape` 有什么区别？
-A: `/stop` **暂停整个同步通道**，双向消息都停止，需要 `/start`、`/resume` 或 `/continue` 恢复。`/escape` **只中断 Claude 当前操作**（等于按 Escape），同步保持活跃。
+### Q: What's the difference between `/stop` and `/escape`?
+A: `/stop` **pauses the entire sync channel** — bidirectional messages stop, need `/start`, `/resume`, or `/continue` to resume. `/escape` **only interrupts Claude's current operation** (like pressing Escape) — sync stays active.
 
-### Q: 切换到其他项目的 session 提示 "session not found"？
-A: 使用 `/projects` 浏览项目并选择 session。Bridge 会自动检测跨项目切换并处理 `cd` + 重启。
+### Q: "Session not found" when switching to another project's session?
+A: Use `/projects` to browse projects and select a session. The bridge auto-detects cross-project switches and handles `cd` + restart.
 
-### Q: Telegram 命令没有更新（看不到新命令）？
-A: 重启 Bridge 即可。Bridge 启动时会自动向 Telegram API 注册最新的命令列表。
+### Q: Telegram commands not updated (can't see new commands)?
+A: Restart the bridge. It auto-registers the latest command list with the Telegram API on startup.
 
-### Q: 如何更新 bot 命令但不重装？
-A: 运行 `./scripts/start.sh --setup-hook` 更新 hook 脚本，然后 `./scripts/start.sh` 重启 bridge 注册新命令。
+### Q: How to update bot commands without reinstalling?
+A: Run `./scripts/start.sh --setup-hook` to update hook scripts, then `./scripts/start.sh` to restart bridge and register new commands.

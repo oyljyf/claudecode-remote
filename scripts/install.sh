@@ -241,6 +241,27 @@ setup_hooks() {
         return 1
     fi
 
+    # Copy alarm hook
+    if [ -f "$PROJECT_DIR/hooks/play-alarm.sh" ]; then
+        cp "$PROJECT_DIR/hooks/play-alarm.sh" ~/.claude/hooks/
+        chmod +x ~/.claude/hooks/play-alarm.sh
+        print_success "Hook script (alarm) installed"
+    fi
+
+    # Copy permission hook
+    if [ -f "$PROJECT_DIR/hooks/handle-permission.sh" ]; then
+        cp "$PROJECT_DIR/hooks/handle-permission.sh" ~/.claude/hooks/
+        chmod +x ~/.claude/hooks/handle-permission.sh
+        print_success "Hook script (permission) installed"
+    fi
+
+    # Copy sounds directory
+    if [ -d "$PROJECT_DIR/sounds" ]; then
+        mkdir -p ~/.claude/sounds
+        cp -n "$PROJECT_DIR/sounds/"*.mp3 ~/.claude/sounds/ 2>/dev/null || true
+        print_success "Sound files installed"
+    fi
+
     # Configure settings.json
     settings_file="$HOME/.claude/settings.json"
 
@@ -248,6 +269,16 @@ setup_hooks() {
         # Check if hooks already configured
         if grep -q "send-to-telegram.sh" "$settings_file" 2>/dev/null; then
             print_success "Hook already configured in settings.json"
+            # Add alarm hook if missing
+            if ! grep -q "play-alarm" "$settings_file" 2>/dev/null && command -v jq &>/dev/null; then
+                jq '.hooks.Stop += [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/play-alarm.sh"}]}] | .hooks.Notification = [{"matcher": "permission_prompt|elicitation_dialog", "hooks": [{"type": "command", "command": "~/.claude/hooks/play-alarm.sh"}]}]' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+                print_success "Alarm hook added to settings.json (Stop + Notification)"
+            fi
+            # Add permission hook if missing
+            if ! grep -q "handle-permission" "$settings_file" 2>/dev/null && command -v jq &>/dev/null; then
+                jq '.hooks.PermissionRequest = [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/handle-permission.sh", "timeout": 120}]}]' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+                print_success "Permission hook added to settings.json"
+            fi
             return
         fi
 
@@ -256,7 +287,7 @@ setup_hooks() {
         print_warning "Backed up existing settings.json"
 
         # Merge hooks into existing settings
-        jq '.hooks.Stop = [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/send-to-telegram.sh"}]}] | .hooks.UserPromptSubmit = [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/send-input-to-telegram.sh"}]}]' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+        jq '.hooks.Stop = [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/send-to-telegram.sh"}]}, {"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/play-alarm.sh"}]}] | .hooks.Notification = [{"matcher": "permission_prompt|elicitation_dialog", "hooks": [{"type": "command", "command": "~/.claude/hooks/play-alarm.sh"}]}] | .hooks.UserPromptSubmit = [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/send-input-to-telegram.sh"}]}] | .hooks.PermissionRequest = [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/handle-permission.sh", "timeout": 120}]}]' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
         print_success "Hook configuration added to settings.json"
     else
         # Create new settings.json
@@ -273,6 +304,26 @@ setup_hooks() {
             "command": "~/.claude/hooks/send-to-telegram.sh"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/play-alarm.sh"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/play-alarm.sh"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -282,6 +333,18 @@ setup_hooks() {
           {
             "type": "command",
             "command": "~/.claude/hooks/send-input-to-telegram.sh"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/handle-permission.sh",
+            "timeout": 120
           }
         ]
       }

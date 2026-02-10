@@ -27,6 +27,8 @@ def tmp_claude_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge, "CURRENT_SESSION_FILE", str(claude_dir / "current_session_id"))
     monkeypatch.setattr(bridge, "SYNC_DISABLED_FILE", str(claude_dir / "telegram_sync_disabled"))
     monkeypatch.setattr(bridge, "SYNC_PAUSED_FILE", str(claude_dir / "telegram_sync_paused"))
+    monkeypatch.setattr(bridge, "PERM_PENDING_FILE", str(claude_dir / "pending_permission.json"))
+    monkeypatch.setattr(bridge, "PERM_RESPONSE_FILE", str(claude_dir / "permission_response.json"))
 
     # Patch Path.home() so functions using Path.home() / ".claude" / "projects" hit our temp dir
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
