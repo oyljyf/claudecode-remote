@@ -22,5 +22,8 @@ __pycache__/
 .installed
 .claude/
 
+# Lock files for pytest
+uv.lock
+
 # Test cache
 .pytest_cache/

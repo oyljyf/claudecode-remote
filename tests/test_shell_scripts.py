@@ -453,6 +453,39 @@ class TestUninstallComponentFlags:
         assert "if $REMOVE_TELEGRAM && ! $KEEP_DEPS" in content
 
 
+class TestPyprojectConfig:
+    """Verify pyproject.toml has correct setuptools config to prevent build errors."""
+
+    def test_py_modules_defined(self):
+        """pyproject.toml must explicitly set py-modules to avoid flat-layout discovery error."""
+        content = (PROJECT_DIR / "pyproject.toml").read_text()
+        assert "[tool.setuptools]" in content, (
+            "pyproject.toml missing [tool.setuptools] section"
+        )
+        assert 'py-modules = ["bridge"]' in content, (
+            "pyproject.toml must set py-modules = [\"bridge\"] to prevent "
+            "setuptools from discovering hooks/ and sounds/ as packages"
+        )
+
+    def test_non_python_dirs_not_treated_as_packages(self):
+        """Directories like hooks/ and sounds/ must not be auto-discovered as Python packages."""
+        import tomllib
+
+        with open(PROJECT_DIR / "pyproject.toml", "rb") as f:
+            config = tomllib.load(f)
+
+        # If py-modules is set, setuptools won't auto-discover packages
+        py_modules = config.get("tool", {}).get("setuptools", {}).get("py-modules", [])
+        assert "bridge" in py_modules, "bridge must be in py-modules"
+
+        # Ensure hooks and sounds are NOT listed as packages
+        packages = config.get("tool", {}).get("setuptools", {}).get("packages", [])
+        for name in ["hooks", "sounds", "scripts", "tests"]:
+            assert name not in packages, (
+                f"{name}/ should not be listed as a Python package"
+            )
+
+
 class TestCleanLogsScript:
     """Verify clean-logs.sh uses correct find options."""
 

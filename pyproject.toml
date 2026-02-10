@@ -8,5 +8,8 @@ dependencies = []
 [project.optional-dependencies]
 test = ["pytest>=7.0"]
 
+[tool.setuptools]
+py-modules = ["bridge"]
+
 [project.scripts]
 claudecode-remote = "bridge:main"
