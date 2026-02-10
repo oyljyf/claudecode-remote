@@ -1,9 +1,12 @@
 [project]
-name = "claudecode-telegram"
+name = "claudecode-remote"
 version = "0.1.0"
 description = "Telegram bridge for Claude Code"
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
 [project.scripts]
-claudecode-telegram = "bridge:main"
+claudecode-remote = "bridge:main"

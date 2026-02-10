@@ -2,31 +2,19 @@
 
 set -e
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALLED_MARKER="$PROJECT_DIR/.installed"
 
+source "$SCRIPT_DIR/lib/common.sh"
+
+# install.sh uses print_step/print_success as aliases
 print_step() {
     echo -e "\n${BLUE}==>${NC} $1"
 }
 
 print_success() {
     echo -e "${GREEN}✓${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}!${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}✗${NC} $1"
 }
 
 usage() {
@@ -76,7 +64,7 @@ check_status() {
     # Check Telegram token
     if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
         print_success "TELEGRAM_BOT_TOKEN: set (env)"
-    elif [ -f "$HOME/.claude/hooks/send-to-telegram.sh" ] && ! grep -q "YOUR_BOT_TOKEN_HERE" "$HOME/.claude/hooks/send-to-telegram.sh" 2>/dev/null; then
+    elif [ -f "$HOME/.claude/hooks/lib/common.sh" ] && ! grep -q "YOUR_BOT_TOKEN_HERE" "$HOME/.claude/hooks/lib/common.sh" 2>/dev/null; then
         print_success "TELEGRAM_BOT_TOKEN: set (in hook)"
     else
         print_warning "TELEGRAM_BOT_TOKEN: not set"
@@ -221,18 +209,23 @@ setup_hooks() {
 
     print_step "Setting up Claude hooks..."
 
-    # Create hooks directory
-    mkdir -p ~/.claude/hooks
+    # Create hooks directory and lib
+    mkdir -p ~/.claude/hooks/lib
+
+    # Copy hooks common library
+    if [ -d "$PROJECT_DIR/hooks/lib" ]; then
+        cp "$PROJECT_DIR/hooks/lib/common.sh" ~/.claude/hooks/lib/
+    fi
+
+    # Replace token placeholder in common library
+    if [ -n "$token" ]; then
+        sed -i '' "s/YOUR_BOT_TOKEN_HERE/$token/" ~/.claude/hooks/lib/common.sh
+    fi
 
     # Copy hook scripts
     if [ -f "$PROJECT_DIR/hooks/send-to-telegram.sh" ]; then
         cp "$PROJECT_DIR/hooks/send-to-telegram.sh" ~/.claude/hooks/
         chmod +x ~/.claude/hooks/send-to-telegram.sh
-
-        # Replace token placeholder
-        if [ -n "$token" ]; then
-            sed -i '' "s/YOUR_BOT_TOKEN_HERE/$token/" ~/.claude/hooks/send-to-telegram.sh
-        fi
         print_success "Hook script (response) installed"
     else
         print_error "hooks/send-to-telegram.sh not found"
@@ -242,11 +235,6 @@ setup_hooks() {
     if [ -f "$PROJECT_DIR/hooks/send-input-to-telegram.sh" ]; then
         cp "$PROJECT_DIR/hooks/send-input-to-telegram.sh" ~/.claude/hooks/
         chmod +x ~/.claude/hooks/send-input-to-telegram.sh
-
-        # Replace token placeholder
-        if [ -n "$token" ]; then
-            sed -i '' "s/YOUR_BOT_TOKEN_HERE/$token/" ~/.claude/hooks/send-input-to-telegram.sh
-        fi
         print_success "Hook script (input) installed"
     else
         print_error "hooks/send-input-to-telegram.sh not found"
@@ -329,7 +317,7 @@ do_install() {
     echo ""
     echo "Next steps:"
     echo "  1. Run 'source ~/.zshrc' (or restart terminal)"
-    echo "  2. Start the bridge: ./scripts/start.sh"
+    echo "  2. Start the bridge: ./scripts/start.sh --new"
 }
 
 # Parse arguments

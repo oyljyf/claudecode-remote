@@ -6,12 +6,14 @@
 # Usage:
 #   ./scripts/start.sh              - Start bridge (default)
 #   ./scripts/start.sh --new        - Create new tmux session + Claude, then start
+#   ./scripts/start.sh --new <path> - Create session for specific project
 #   ./scripts/start.sh --attach     - Attach to Claude tmux session
 #   ./scripts/start.sh --detach     - Detach from tmux (run from another terminal)
 #   ./scripts/start.sh --view       - View recent Claude output (without attaching)
 #   ./scripts/start.sh --check      - Check configuration only
 #   ./scripts/start.sh --setup-hook - Setup hook configuration
 #   ./scripts/start.sh --sync       - Show how to sync desktop and Telegram
+#   ./scripts/start.sh --terminate  - Stop all bridge processes and disable sync
 #   ./scripts/start.sh --help       - Show this help
 
 set -e
@@ -20,44 +22,44 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-PORT=${PORT:-8080}
-TMUX_SESSION=${TMUX_SESSION:-claude}
+source "$SCRIPT_DIR/lib/common.sh"
+
+PORT=${PORT:-$DEFAULT_PORT}
+TMUX_SESSION=${TMUX_SESSION:-$DEFAULT_TMUX_SESSION}
 CHECK_ONLY=false
 NEW_SESSION=false
+NEW_PROJECT_PATH=""
 SETUP_HOOK=false
 SHOW_SYNC=false
 SHOW_HELP=false
 ATTACH_SESSION=false
 VIEW_OUTPUT=false
 DETACH_SESSION=false
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+TERMINATE_ALL=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --check) CHECK_ONLY=true; shift ;;
-        --new) NEW_SESSION=true; shift ;;
+        --new)
+            NEW_SESSION=true
+            shift
+            # Check if next argument is a path (not another flag)
+            if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+                NEW_PROJECT_PATH="$1"
+                shift
+            fi
+            ;;
         --setup-hook) SETUP_HOOK=true; shift ;;
         --sync) SHOW_SYNC=true; shift ;;
         --help|-h) SHOW_HELP=true; shift ;;
         --attach) ATTACH_SESSION=true; shift ;;
         --detach) DETACH_SESSION=true; shift ;;
         --view) VIEW_OUTPUT=true; shift ;;
+        --terminate) TERMINATE_ALL=true; shift ;;
         *) shift ;;
     esac
 done
-
-print_status() { echo -e "${GREEN}✓${NC} $1"; }
-print_error() { echo -e "${RED}✗${NC} $1"; }
-print_warning() { echo -e "${YELLOW}!${NC} $1"; }
-print_info() { echo -e "${BLUE}→${NC} $1"; }
 
 # ============================================
 # Help
@@ -68,13 +70,15 @@ show_help() {
     echo "Usage: ./scripts/start.sh [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --new         Create new tmux session with Claude, then start bridge"
+    echo "  --new [path]  Create new tmux session with Claude for specific project"
+    echo "                If path provided, Claude starts in that directory"
     echo "  --attach      Attach to Claude tmux session"
     echo "  --detach      Detach from tmux (run from another terminal)"
     echo "  --view        View recent Claude output (without attaching)"
     echo "  --check       Check configuration only (don't start)"
     echo "  --setup-hook  Setup Claude Stop hook for Telegram"
     echo "  --sync        Show how to sync desktop and Telegram sessions"
+    echo "  --terminate   Stop all bridge processes and disable sync"
     echo "  --help, -h    Show this help"
     echo ""
     echo "Environment Variables:"
@@ -83,9 +87,11 @@ show_help() {
     echo "  PORT                Bridge port (default: 8080)"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/start.sh              # Start bridge"
-    echo "  ./scripts/start.sh --new        # Create new session and start"
-    echo "  ./scripts/start.sh --setup-hook # Configure hook first"
+    echo "  ./scripts/start.sh                          # Start bridge"
+    echo "  ./scripts/start.sh --new                    # Create session (current dir)"
+    echo "  ./scripts/start.sh --new ~/Projects/myapp   # Create session for project"
+    echo "  ./scripts/start.sh --new /path/to/project   # Create session for project"
+    echo "  ./scripts/start.sh --setup-hook             # Configure hook first"
     echo ""
 }
 
@@ -145,6 +151,45 @@ if $SHOW_SYNC; then
 fi
 
 # ============================================
+# Terminate All (stop bridge and disable sync)
+# ============================================
+if $TERMINATE_ALL; then
+    echo -e "\n${RED}=== Terminating Bridge ===${NC}\n"
+
+    kill_bridge
+    kill_cloudflared
+
+    # Create disabled flag file
+    echo "$(date +%s)" > "$SYNC_DISABLED_FILE"
+    print_status "Desktop sync disabled"
+
+    # Remove pending file
+    rm -f "$PENDING_FILE"
+
+    # Remove webhook
+    if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+        print_info "Removing Telegram webhook..."
+        curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" > /dev/null
+        print_status "Webhook removed"
+    fi
+
+    echo ""
+    echo -e "${GREEN}========================================${NC}"
+    echo -e "${GREEN}  Bridge Terminated${NC}"
+    echo -e "${GREEN}========================================${NC}"
+    echo ""
+    echo -e "  ${YELLOW}To restart:${NC}"
+    echo -e "    ${GREEN}./scripts/start.sh${NC}       - Start bridge again"
+    echo -e "    ${GREEN}./scripts/start.sh --new${NC} - New session + bridge"
+    echo ""
+    echo -e "  ${YELLOW}To re-enable sync only (without restarting bridge):${NC}"
+    echo -e "    ${GREEN}rm ~/.claude/telegram_sync_disabled${NC}"
+    echo -e "    Or send ${GREEN}/start${NC} in Telegram"
+    echo ""
+    exit 0
+fi
+
+# ============================================
 # Attach to tmux session (with session selection)
 # ============================================
 if $ATTACH_SESSION; then
@@ -179,18 +224,20 @@ if $ATTACH_SESSION; then
                 session_id=$(basename "$file" .jsonl)
                 SESSION_IDS+=("$session_id")
                 project_dir=$(dirname "$file")
-                project_name=$(basename "$project_dir")
+                project_encoded=$(basename "$project_dir")
+                # Decode project path: -Users-loyjy-Projects-app → /Users/loyjy/Projects/app
+                project_path=$(echo "$project_encoded" | sed 's/^-/\//' | sed 's/-/\//g')
+                # Use shortest unique suffix (last 2 components)
+                project_display=$(echo "$project_path" | rev | cut -d'/' -f1-2 | rev)
                 mod_time=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M" "$file" 2>/dev/null || stat -c "%y" "$file" 2>/dev/null | cut -d'.' -f1)
 
                 if [ $i -eq 1 ]; then
-                    echo -e "  ${GREEN}[$i] $project_name${NC} (latest)"
-                    echo -e "      ${BLUE}${session_id:0:36}...${NC}"
-                    echo -e "      $mod_time"
+                    echo -e "  ${GREEN}[$i] $project_display${NC} (latest)"
                 else
-                    echo -e "  [$i] $project_name"
-                    echo -e "      ${BLUE}${session_id:0:36}...${NC}"
-                    echo -e "      $mod_time"
+                    echo -e "  [$i] $project_display"
                 fi
+                echo -e "      ${BLUE}$session_id${NC}"
+                echo -e "      $mod_time"
                 echo ""
                 ((i++))
             done <<< "$SESSION_LIST"
@@ -207,7 +254,7 @@ if $ATTACH_SESSION; then
                 print_info "Attaching without resume..."
             elif [ "$selection" -ge 1 ] && [ "$selection" -le $total_sessions ] 2>/dev/null; then
                 selected_id="${SESSION_IDS[$((selection-1))]}"
-                print_info "Resuming session: ${selected_id:0:36}..."
+                print_info "Resuming session: $selected_id"
                 echo ""
                 # Send /resume command to Claude (works within Claude Code)
                 tmux send-keys -t "$TMUX_SESSION" "/resume $selected_id" Enter
@@ -285,8 +332,14 @@ setup_hook() {
         exit 1
     fi
 
-    # Create hooks directory
-    mkdir -p ~/.claude/hooks
+    # Create hooks directory and lib
+    mkdir -p ~/.claude/hooks/lib
+
+    # Copy hooks common library
+    if [ -d "hooks/lib" ]; then
+        cp hooks/lib/common.sh ~/.claude/hooks/lib/
+        print_status "Hook library copied"
+    fi
 
     # Copy hook scripts
     if [ -f "hooks/send-to-telegram.sh" ]; then
@@ -307,12 +360,10 @@ setup_hook() {
         exit 1
     fi
 
-    # Update token in hook scripts
-    sed -i '' "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/send-to-telegram.sh 2>/dev/null || \
-    sed -i "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/send-to-telegram.sh
-    sed -i '' "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/send-input-to-telegram.sh 2>/dev/null || \
-    sed -i "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/send-input-to-telegram.sh
-    print_status "Token configured in hook scripts"
+    # Update token in hooks common library
+    sed -i '' "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/lib/common.sh 2>/dev/null || \
+    sed -i "s/YOUR_BOT_TOKEN_HERE/$TELEGRAM_BOT_TOKEN/" ~/.claude/hooks/lib/common.sh
+    print_status "Token configured in hooks library"
 
     # Update settings.json
     SETTINGS_FILE=~/.claude/settings.json
@@ -418,11 +469,6 @@ check_config() {
     # Check hook scripts
     if [ -f ~/.claude/hooks/send-to-telegram.sh ]; then
         print_status "Hook script (response) exists"
-        if grep -q "YOUR_BOT_TOKEN_HERE" ~/.claude/hooks/send-to-telegram.sh; then
-            print_warning "Hook script (response) has placeholder token - run: ./scripts/start.sh --setup-hook"
-        else
-            print_status "Hook script (response) token configured"
-        fi
     else
         print_error "Hook script (response) not found - run: ./scripts/start.sh --setup-hook"
         all_ok=false
@@ -430,13 +476,20 @@ check_config() {
 
     if [ -f ~/.claude/hooks/send-input-to-telegram.sh ]; then
         print_status "Hook script (input) exists"
-        if grep -q "YOUR_BOT_TOKEN_HERE" ~/.claude/hooks/send-input-to-telegram.sh; then
-            print_warning "Hook script (input) has placeholder token - run: ./scripts/start.sh --setup-hook"
-        else
-            print_status "Hook script (input) token configured"
-        fi
     else
         print_error "Hook script (input) not found - run: ./scripts/start.sh --setup-hook"
+        all_ok=false
+    fi
+
+    if [ -f ~/.claude/hooks/lib/common.sh ]; then
+        print_status "Hook library exists"
+        if grep -q "YOUR_BOT_TOKEN_HERE" ~/.claude/hooks/lib/common.sh; then
+            print_warning "Hook library has placeholder token - run: ./scripts/start.sh --setup-hook"
+        else
+            print_status "Hook library token configured"
+        fi
+    else
+        print_error "Hook library not found - run: ./scripts/start.sh --setup-hook"
         all_ok=false
     fi
 
@@ -489,30 +542,12 @@ kill_port() {
     fi
 }
 
-kill_cloudflared() {
-    local pids=$(pgrep -f "cloudflared tunnel" 2>/dev/null)
-    if [ -n "$pids" ]; then
-        print_warning "Killing existing cloudflared processes..."
-        pkill -9 -f "cloudflared tunnel" 2>/dev/null
-        sleep 1
-    fi
-}
-
-kill_bridge() {
-    local pids=$(pgrep -f "python bridge.py" 2>/dev/null)
-    if [ -n "$pids" ]; then
-        print_warning "Killing existing bridge processes..."
-        pkill -9 -f "python bridge.py" 2>/dev/null
-        sleep 1
-    fi
-}
-
 cleanup() {
     echo -e "\n${YELLOW}Shutting down...${NC}"
     kill $BRIDGE_PID 2>/dev/null
     kill $TUNNEL_PID 2>/dev/null
     rm -f /tmp/tunnel_output.log
-    rm -f ~/.claude/telegram_pending
+    rm -f "$PENDING_FILE"
     exit 0
 }
 
@@ -528,12 +563,43 @@ if $NEW_SESSION; then
         sleep 1
     fi
 
-    print_info "Creating tmux session and starting Claude..."
-    tmux new-session -d -s "$TMUX_SESSION" "claude --dangerously-skip-permissions"
+    # Determine target directory
+    if [ -n "$NEW_PROJECT_PATH" ]; then
+        # Expand ~ and resolve path
+        TARGET_DIR=$(eval echo "$NEW_PROJECT_PATH")
+        TARGET_DIR=$(cd "$TARGET_DIR" 2>/dev/null && pwd || echo "$TARGET_DIR")
+
+        if [ ! -d "$TARGET_DIR" ]; then
+            print_error "Directory not found: $TARGET_DIR"
+            exit 1
+        fi
+
+        print_info "Creating tmux session for project: $TARGET_DIR"
+
+        # Create session with interactive shell first, then inject Claude
+        tmux new-session -d -s "$TMUX_SESSION" -c "$TARGET_DIR"
+    else
+        print_info "Creating tmux session and starting Claude..."
+        tmux new-session -d -s "$TMUX_SESSION"
+    fi
+
+    # Configure tmux scrollback and mouse support
+    tmux set-option -t "$TMUX_SESSION" mouse on
+    tmux set-option -t "$TMUX_SESSION" history-limit 10000
+    tmux set-window-option -t "$TMUX_SESSION" allow-rename off
+
+    sleep 0.5
+
+    # Start Claude inside the interactive shell
+    tmux send-keys -t "$TMUX_SESSION" "claude --dangerously-skip-permissions" Enter
     sleep 2
 
     if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-        print_status "tmux session '$TMUX_SESSION' created with Claude"
+        if [ -n "$NEW_PROJECT_PATH" ]; then
+            print_status "tmux session '$TMUX_SESSION' created with Claude in $TARGET_DIR"
+        else
+            print_status "tmux session '$TMUX_SESSION' created with Claude"
+        fi
         print_info "To detach: run './scripts/start.sh --detach' from another terminal"
     else
         print_error "Failed to create tmux session"
@@ -585,6 +651,12 @@ kill_bridge
 kill_port
 kill_cloudflared
 
+# Remove disabled flag (starting bridge re-enables sync)
+if [ -f "$SYNC_DISABLED_FILE" ]; then
+    rm -f "$SYNC_DISABLED_FILE"
+    print_status "Desktop sync re-enabled"
+fi
+
 print_status "Old processes cleaned"
 
 # ============================================
@@ -599,7 +671,7 @@ source .venv/bin/activate
 
 # Start bridge
 print_info "Starting bridge server..."
-python bridge.py &
+python3 bridge.py &
 BRIDGE_PID=$!
 sleep 2
 
@@ -708,10 +780,12 @@ echo ""
 echo -e "  ${YELLOW}Send a message to your bot to test!${NC}"
 echo ""
 echo -e "  ${CYAN}Telegram Commands:${NC}"
-echo -e "    /status     Check tmux status"
-echo -e "    /stop       Interrupt Claude"
-echo -e "    /clear      Clear conversation"
+echo -e "    /start      Start new Claude session"
+echo -e "    /stop       Pause sync"
+echo -e "    /escape     Interrupt Claude (Escape)"
 echo -e "    /resume     Resume a session"
+echo -e "    /projects   Browse projects"
+echo -e "    /status     Check status"
 echo ""
 echo -e "  ${CYAN}tmux Controls (from another terminal):${NC}"
 echo -e "    ${GREEN}./scripts/start.sh --detach${NC}  Detach from tmux"

@@ -3,8 +3,10 @@
 # Usage: ./scripts/clean-logs.sh [days] # Default is 30 days
 # Example: ./scripts/clean-logs.sh 7  # Delete logs older than 7 days
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+
 DAYS=${1:-30}
-LOG_DIR=~/.claude/logs
 
 if [ ! -d "$LOG_DIR" ]; then
     echo "Log directory not found: $LOG_DIR"

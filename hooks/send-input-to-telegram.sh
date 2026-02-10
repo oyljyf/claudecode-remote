@@ -2,32 +2,38 @@
 # Claude Code UserPromptSubmit hook - sends user input to Telegram
 # Always logs to file, only sends to Telegram if message is from desktop
 
-TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-YOUR_BOT_TOKEN_HERE}"
-CHAT_ID_FILE=~/.claude/telegram_chat_id
-PENDING_FILE=~/.claude/telegram_pending
-LOG_DIR=~/.claude/logs
-LOG_FILE="$LOG_DIR/cc_$(date +%d%m%y).log"
+source "$(dirname "$0")/lib/common.sh"
 
-# Ensure log directory exists
-mkdir -p "$LOG_DIR"
-
-[ ! -f "$CHAT_ID_FILE" ] && exit 0
+# Check if sync is disabled (terminated) or paused - still log to file but skip Telegram
+SYNC_DISABLED=0
+if get_sync_disabled; then
+    SYNC_DISABLED=1
+fi
 
 # Check if message came from Telegram
 FROM_TELEGRAM=0
 [ -f "$PENDING_FILE" ] && FROM_TELEGRAM=1
 
-CHAT_ID=$(cat "$CHAT_ID_FILE")
+# Try to get chat ID from session-chat mapping first
+CHAT_ID=""
+if [ -f "$CURRENT_SESSION_FILE" ]; then
+    SESSION_ID=$(cat "$CURRENT_SESSION_FILE")
+    CHAT_ID=$(get_chat_id "$SESSION_ID")
+else
+    CHAT_ID=$(get_chat_id)
+fi
+
+[ -z "$CHAT_ID" ] && exit 0
 INPUT=$(cat)
 PROMPT=$(echo "$INPUT" | jq -r '.prompt // empty')
 
 [ -z "$PROMPT" ] && exit 0
 
-python3 - "$PROMPT" "$CHAT_ID" "$TELEGRAM_BOT_TOKEN" "$LOG_FILE" "$FROM_TELEGRAM" << 'PYEOF'
+python3 - "$PROMPT" "$CHAT_ID" "$TELEGRAM_BOT_TOKEN" "$LOG_FILE" "$FROM_TELEGRAM" "$SYNC_DISABLED" << 'PYEOF'
 import sys, json, urllib.request
 from datetime import datetime
 
-prompt, chat_id, token, log_file, from_telegram = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+prompt, chat_id, token, log_file, from_telegram, sync_disabled = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
 
 if not prompt:
     sys.exit(0)
@@ -46,6 +52,10 @@ def log_message(text, role="You"):
 
 # Always log to file
 log_message(prompt)
+
+# Skip Telegram if sync is disabled
+if sync_disabled == "1":
+    sys.exit(0)
 
 # Send to Telegram if from desktop, show notification if from Telegram
 if from_telegram == "0":

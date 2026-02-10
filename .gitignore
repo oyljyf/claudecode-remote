@@ -1,7 +1,26 @@
+# Python
 __pycache__/
 *.pyc
-.venv/
+*.pyo
 *.egg-info/
+.venv/
+
+# Environment
 .env
-.claude/
+.env.*
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project local state
 .installed
+.claude/
+
+# Test cache
+.pytest_cache/

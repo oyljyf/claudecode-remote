@@ -2,16 +2,11 @@
 # Claude Code Stop hook - sends response back to Telegram
 # Install: copy to ~/.claude/hooks/ and add to ~/.claude/settings.json
 
-TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-YOUR_BOT_TOKEN_HERE}"
+source "$(dirname "$0")/lib/common.sh"
+
 INPUT=$(cat)
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path')
-CHAT_ID_FILE=~/.claude/telegram_chat_id
-PENDING_FILE=~/.claude/telegram_pending
-LOG_DIR=~/.claude/logs
-LOG_FILE="$LOG_DIR/cc_$(date +%d%m%y).log"
 
-# Ensure log directory exists
-mkdir -p "$LOG_DIR"
 DEBUG_LOG="$LOG_DIR/debug.log"
 
 log_debug() {
@@ -25,17 +20,24 @@ log_debug "TRANSCRIPT_PATH: $TRANSCRIPT_PATH"
 sleep 0.3
 
 # Check required files
-if [ ! -f "$CHAT_ID_FILE" ]; then
-    log_debug "EXIT: CHAT_ID_FILE not found"
-    exit 0
-fi
 if [ ! -f "$TRANSCRIPT_PATH" ]; then
     log_debug "EXIT: TRANSCRIPT_PATH not found"
     exit 0
 fi
 
-CHAT_ID=$(cat "$CHAT_ID_FILE")
+# Extract session ID from transcript path (filename without extension)
+SESSION_ID=$(basename "$TRANSCRIPT_PATH" .jsonl)
+log_debug "SESSION_ID: $SESSION_ID"
+
+CHAT_ID=$(get_chat_id "$SESSION_ID")
 log_debug "CHAT_ID: $CHAT_ID"
+
+if [ -z "$CHAT_ID" ]; then
+    log_debug "EXIT: No CHAT_ID found"
+    exit 0
+fi
+
+log_debug "Using CHAT_ID: $CHAT_ID"
 
 LAST_USER_LINE=$(grep -n '"type":"user"' "$TRANSCRIPT_PATH" | tail -1 | cut -d: -f1)
 if [ -z "$LAST_USER_LINE" ]; then
@@ -57,11 +59,17 @@ if [ ! -s "$TMPFILE" ]; then
 fi
 log_debug "Text extracted, size: $(wc -c < "$TMPFILE") bytes"
 
-python3 - "$TMPFILE" "$CHAT_ID" "$TELEGRAM_BOT_TOKEN" "$LOG_FILE" "$DEBUG_LOG" << 'PYEOF'
+# Check sync state after content extraction (always log, conditionally send)
+SYNC_DISABLED=0
+if get_sync_disabled; then
+    SYNC_DISABLED=1
+fi
+
+python3 - "$TMPFILE" "$CHAT_ID" "$TELEGRAM_BOT_TOKEN" "$LOG_FILE" "$DEBUG_LOG" "$SYNC_DISABLED" << 'PYEOF'
 import sys, re, json, urllib.request
 from datetime import datetime
 
-tmpfile, chat_id, token, log_file, debug_log = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+tmpfile, chat_id, token, log_file, debug_log, sync_disabled = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
 
 def log_debug(msg):
     try:
@@ -117,19 +125,23 @@ def log_message(text, role="Claude"):
     except:
         pass
 
-log_debug(f"Sending message, length: {len(text)}")
-sent = send(text, "HTML")
-if not sent:
-    log_debug("HTML send failed, trying plain text")
-    with open(tmpfile) as f:
-        sent = send(f.read()[:4096])
+# Always log the message
+log_message(original_text)
 
-# Log the message after sending
-if sent:
-    log_debug("Message sent successfully")
-    log_message(original_text)
+# Only send to Telegram if sync is not disabled/paused
+if sync_disabled == "1":
+    log_debug("Sync disabled/paused, logged only (skipping Telegram send)")
 else:
-    log_debug("ERROR: Failed to send message")
+    log_debug(f"Sending message, length: {len(text)}")
+    sent = send(text, "HTML")
+    if not sent:
+        log_debug("HTML send failed, trying plain text")
+        with open(tmpfile) as f:
+            sent = send(f.read()[:4096])
+    if sent:
+        log_debug("Message sent successfully")
+    else:
+        log_debug("ERROR: Failed to send message")
 PYEOF
 
 rm -f "$TMPFILE" "$PENDING_FILE"
