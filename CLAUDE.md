@@ -153,7 +153,6 @@ Claude Code encodes project paths: `/Users/foo/my-app` → `-Users-foo-my-app`
 | `get_projects()` | List projects with session counts |
 | `get_sessions_for_project()` | List sessions for a specific project |
 | `project_hash()` / `project_from_hash()` | Short hash for callback_data (64-byte limit) |
-| `_handle_permission_response()` | Process Allow/Deny callback, write response file for hook |
 
 ## Telegram Commands
 
@@ -240,13 +239,10 @@ Claude asks question / requests permission
 
 Claude requests tool permission (PermissionRequest)
   → handle-permission.sh hook fires
-  → Extract tool_name, tool_input from stdin JSON
-  → Format message, send Telegram inline keyboard [Allow] [Deny]
-  → Write pending_permission.json (id, tool_name, timestamp)
-  → Poll permission_response.json (1s interval, 120s timeout)
-  → User clicks button in Telegram → Bridge writes response file
-  → Hook reads response → output allow/deny JSON → Claude continues
-  → Timeout → clean up → exit 0 (fall back to terminal dialog)
+  → Forward raw CC JSON to Telegram (no formatting, no buttons)
+  → Exit immediately (no decision output)
+  → CC falls back to terminal dialog (y/n/a)
+  → User replies in Telegram → bridge sends to tmux → CC reads it
 ```
 
 ### Cross-Project Session Switch

@@ -205,8 +205,8 @@ class TestRegularMessage:
         assert chat == "456"
 
 
-class TestPermissionCallback:
-    """Tests for permission request callback handling."""
+class TestAskAnswerCallback:
+    """Tests for AskUserQuestion callback handling (askq: prefix)."""
 
     def _make_callback(self, data, chat_id=123):
         return {
@@ -215,204 +215,41 @@ class TestPermissionCallback:
             "data": data,
         }
 
-    def test_perm_allow(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
-        # Write pending permission
-        import json
-        pending = {"id": "abcd1234", "tool_name": "Bash", "timestamp": 1000}
-        with open(bridge.PERM_PENDING_FILE, "w") as f:
-            json.dump(pending, f)
-
+    def test_askq_first_option(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
+        """askq:0 sends Enter immediately (no Down keys)."""
         handler = _make_handler(mock_tmux, mock_telegram_api)
-        handler.handle_callback(self._make_callback("perm_allow:abcd1234"))
-
-        # Verify response file was written
-        assert os.path.exists(bridge.PERM_RESPONSE_FILE)
-        with open(bridge.PERM_RESPONSE_FILE) as f:
-            resp = json.load(f)
-        assert resp["id"] == "abcd1234"
-        assert resp["behavior"] == "allow"
-        # Verify reply
+        handler.handle_callback(self._make_callback("askq:0"))
+        # Should send Enter but no Down
+        down_calls = [c for c in mock_tmux["calls"] if "Down" in c]
+        enter_calls = [c for c in mock_tmux["calls"] if "Enter" in c]
+        assert len(down_calls) == 0
+        assert len(enter_calls) > 0
         handler.reply.assert_called_once()
-        msg = handler.reply.call_args[0][1]
-        assert "Allow" in msg
-        assert "Bash" in msg
+        assert "option 1" in handler.reply.call_args[0][1]
 
-    def test_perm_deny(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
-        import json
-        pending = {"id": "abcd1234", "tool_name": "Write", "timestamp": 1000}
-        with open(bridge.PERM_PENDING_FILE, "w") as f:
-            json.dump(pending, f)
-
+    def test_askq_third_option(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
+        """askq:2 sends Down twice then Enter."""
         handler = _make_handler(mock_tmux, mock_telegram_api)
-        handler.handle_callback(self._make_callback("perm_deny:abcd1234"))
+        handler.handle_callback(self._make_callback("askq:2"))
+        down_calls = [c for c in mock_tmux["calls"] if "Down" in c]
+        enter_calls = [c for c in mock_tmux["calls"] if "Enter" in c]
+        assert len(down_calls) == 2
+        assert len(enter_calls) > 0
+        assert "option 3" in handler.reply.call_args[0][1]
 
-        assert os.path.exists(bridge.PERM_RESPONSE_FILE)
-        with open(bridge.PERM_RESPONSE_FILE) as f:
-            resp = json.load(f)
-        assert resp["id"] == "abcd1234"
-        assert resp["behavior"] == "deny"
-        handler.reply.assert_called_once()
-        msg = handler.reply.call_args[0][1]
-        assert "Deny" in msg
-
-    def test_perm_expired(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
-        """Pending ID does not match callback ID."""
-        import json
-        pending = {"id": "different", "tool_name": "Bash", "timestamp": 1000}
-        with open(bridge.PERM_PENDING_FILE, "w") as f:
-            json.dump(pending, f)
-
-        handler = _make_handler(mock_tmux, mock_telegram_api)
-        handler.handle_callback(self._make_callback("perm_allow:abcd1234"))
-
-        # Should not write response file
-        assert not os.path.exists(bridge.PERM_RESPONSE_FILE)
-        handler.reply.assert_called_once()
-        msg = handler.reply.call_args[0][1]
-        assert "expired" in msg or "mismatched" in msg
-
-    def test_perm_no_pending(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
-        """No pending permission file exists."""
-        handler = _make_handler(mock_tmux, mock_telegram_api)
-        handler.handle_callback(self._make_callback("perm_allow:abcd1234"))
-
-        assert not os.path.exists(bridge.PERM_RESPONSE_FILE)
-        handler.reply.assert_called_once()
-        msg = handler.reply.call_args[0][1]
-        assert "No pending" in msg
-
-    def test_perm_allow_no_tmux_needed(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
-        """Permission callback works even when tmux is down (file IPC only)."""
+    def test_askq_no_tmux(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
+        """askq without tmux replies error."""
         mock_tmux["exists"] = False
-        pending = {"id": "notmux1", "tool_name": "Bash", "timestamp": 1000}
-        with open(bridge.PERM_PENDING_FILE, "w") as f:
-            json.dump(pending, f)
-
         handler = _make_handler(mock_tmux, mock_telegram_api)
-        handler.handle_callback(self._make_callback("perm_allow:notmux1"))
-
-        # Should still work — permission doesn't need tmux
-        assert os.path.exists(bridge.PERM_RESPONSE_FILE)
-        with open(bridge.PERM_RESPONSE_FILE) as f:
-            resp = json.load(f)
-        assert resp["behavior"] == "allow"
-
-
-class TestPermissionEndToEnd:
-    """End-to-end: simulate hook writes pending → bridge callback → hook reads response."""
-
-    def _make_callback(self, data, chat_id=123):
-        return {
-            "id": "cb1",
-            "message": {"chat": {"id": chat_id}},
-            "data": data,
-        }
-
-    def _hook_read_response(self, perm_id):
-        """Simulate what handle-permission.sh's Python code does after bridge writes response."""
-        if not os.path.exists(bridge.PERM_RESPONSE_FILE):
-            return None
-        with open(bridge.PERM_RESPONSE_FILE) as f:
-            resp = json.load(f)
-        if resp.get("id") != perm_id:
-            return None
-        behavior = resp.get("behavior", "deny")
-        if behavior == "allow":
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PermissionRequest",
-                    "decision": {"behavior": "allow"},
-                }
-            }
-        else:
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PermissionRequest",
-                    "decision": {
-                        "behavior": "deny",
-                        "message": "Denied via Telegram",
-                    },
-                }
-            }
-
-    def test_allow_produces_correct_claude_json(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
-        """Full flow: pending → Allow callback → hook output matches Claude's expected format."""
-        perm_id = "e2e_allow"
-        pending = {"id": perm_id, "tool_name": "Bash", "timestamp": time.time()}
-        with open(bridge.PERM_PENDING_FILE, "w") as f:
-            json.dump(pending, f)
-
-        # Bridge handles callback
-        handler = _make_handler(mock_tmux, mock_telegram_api)
-        handler.handle_callback(self._make_callback(f"perm_allow:{perm_id}"))
-
-        # Hook reads response
-        output = self._hook_read_response(perm_id)
-        assert output is not None
-        assert output["hookSpecificOutput"]["hookEventName"] == "PermissionRequest"
-        assert output["hookSpecificOutput"]["decision"]["behavior"] == "allow"
-
-    def test_deny_produces_correct_claude_json(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
-        """Full flow: pending → Deny callback → hook output matches Claude's expected format."""
-        perm_id = "e2e_deny"
-        pending = {"id": perm_id, "tool_name": "Write", "timestamp": time.time()}
-        with open(bridge.PERM_PENDING_FILE, "w") as f:
-            json.dump(pending, f)
-
-        handler = _make_handler(mock_tmux, mock_telegram_api)
-        handler.handle_callback(self._make_callback(f"perm_deny:{perm_id}"))
-
-        output = self._hook_read_response(perm_id)
-        assert output is not None
-        assert output["hookSpecificOutput"]["decision"]["behavior"] == "deny"
-        assert "Denied via Telegram" in output["hookSpecificOutput"]["decision"]["message"]
-
-    def test_response_file_cleaned_after_read(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
-        """Hook should clean up response file after reading (simulated)."""
-        perm_id = "e2e_clean"
-        pending = {"id": perm_id, "tool_name": "Edit", "timestamp": time.time()}
-        with open(bridge.PERM_PENDING_FILE, "w") as f:
-            json.dump(pending, f)
-
-        handler = _make_handler(mock_tmux, mock_telegram_api)
-        handler.handle_callback(self._make_callback(f"perm_allow:{perm_id}"))
-
-        # Response file exists before hook reads it
-        assert os.path.exists(bridge.PERM_RESPONSE_FILE)
-
-        # Simulate hook cleanup (what handle-permission.sh does after reading)
-        output = self._hook_read_response(perm_id)
-        assert output is not None
-        os.remove(bridge.PERM_RESPONSE_FILE)
-        os.remove(bridge.PERM_PENDING_FILE)
-        assert not os.path.exists(bridge.PERM_RESPONSE_FILE)
-        assert not os.path.exists(bridge.PERM_PENDING_FILE)
-
-    def test_stale_response_ignored(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
-        """If response file has wrong ID, hook ignores it (simulates stale response)."""
-        # Write a stale response from a previous request
-        with open(bridge.PERM_RESPONSE_FILE, "w") as f:
-            json.dump({"id": "old_request", "behavior": "allow"}, f)
-
-        # Hook polls with current perm_id — should not match
-        output = self._hook_read_response("new_request")
-        assert output is None
-
-    def test_telegram_confirmation_message(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
-        """Bridge sends confirmation message back to Telegram after Allow/Deny."""
-        perm_id = "e2e_confirm"
-        pending = {"id": perm_id, "tool_name": "Bash", "timestamp": time.time()}
-        with open(bridge.PERM_PENDING_FILE, "w") as f:
-            json.dump(pending, f)
-
-        handler = _make_handler(mock_tmux, mock_telegram_api)
-        handler.handle_callback(self._make_callback(f"perm_allow:{perm_id}"))
-
-        # Bridge should reply with confirmation
-        handler.reply.assert_called_once()
+        handler.handle_callback(self._make_callback("askq:0"))
         msg = handler.reply.call_args[0][1]
-        assert "Allow" in msg
-        assert "Bash" in msg
+        assert "not found" in msg
+
+    def test_askq_invalid_index(self, tmp_claude_dir, mock_tmux, mock_telegram_api):
+        """askq with non-numeric index is silently ignored."""
+        handler = _make_handler(mock_tmux, mock_telegram_api)
+        handler.handle_callback(self._make_callback("askq:abc"))
+        handler.reply.assert_not_called()
 
 
 class TestParseCallbackData:

@@ -149,22 +149,37 @@ Effects:
 
 **Prerequisite**: Claude started **without** `--dangerously-skip-permissions`, bridge running
 
-When Claude requests permission, Telegram shows:
+When Claude requests permission, the raw CC JSON is forwarded to Telegram. The hook exits without making a decision, so CC falls back to its terminal dialog (y/n/a). You reply in Telegram and the bridge sends your response to tmux.
+
+**Special case — AskUserQuestion**: When Claude asks a question with multiple choice options, Telegram shows formatted options with inline keyboard buttons:
+
+```
+❓ [Next step] How do you want to proceed?
+
+1. Setup hook + restart bridge
+   Run --setup-hook and restart bridge to apply changes now
+2. Update docs + commit
+   Update CLAUDE.md/README docs to reflect the new behavior, then commit
+
+[1. Setup hook + restart bridge]   ← tap to select
+[2. Update docs + commit]          ← tap to select
+```
+
+Tap a button to select — the bridge sends the corresponding keystrokes (Down arrow + Enter) to the CC terminal TUI via tmux.
+
+For other permission requests (Bash, Write, Edit, etc.), the raw JSON is forwarded as-is:
 
 ```
 🔐 Permission Request
 
-Tool: Bash
-$ npm install
-
-[✅ Allow]  [❌ Deny]
+{
+  "tool_name": "Bash",
+  "tool_input": {"command": "npm install"},
+  ...
+}
 ```
 
-Tap **Allow** to let Claude proceed, or **Deny** to reject.
-
-- 120-second timeout — if no response, falls back to the terminal dialog
-- Shows tool name and details (command for Bash, file path for Write/Edit)
-- Works even if tmux is down (uses file IPC, not tmux)
+CC shows its terminal dialog — reply `y`/`n`/`a` in Telegram to respond.
 
 > **Note**: Default `start.sh --new` uses `--dangerously-skip-permissions`, which skips all permission checks. To use remote permission, start Claude without that flag.
 

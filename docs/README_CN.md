@@ -9,7 +9,7 @@
 - **跨项目切换**：从 Telegram 浏览不同项目并切换 session，bridge 自动处理 `cd` + 重启
 - **三态同步**：Active（活跃）/ Paused（暂停）/ Terminated（断开），日志始终记录
 - **tmux 滚动**：支持鼠标滚动和 10000 行历史记录
-- **远程权限控制**：Claude 请求工具权限时，Telegram 显示 Allow/Deny 按钮，无需回到桌面终端
+- **远程权限控制**：Claude 请求工具权限时，CC 原始请求直接转发到 Telegram，在 Telegram 回复即可
 - **本地提醒音**：Claude 停止时（任务完成或等待输入）播放声音，切到其他窗口也不会错过
 
 ## 安装
@@ -82,12 +82,9 @@ source ~/.zshrc  # 或 source ~/.bashrc
 
 ### 远程权限控制
 
-当 Claude 请求工具权限时（如执行命令、写文件），Telegram 会显示 **Allow** 和 **Deny** 按钮，点击即可远程响应，无需回到桌面终端。
+当 Claude 请求工具权限时（如执行命令、写文件），CC 原始请求内容直接转发到 Telegram。Hook 不做决定，CC 回退到终端对话框，你在 Telegram 回复 y/n/a 即可。
 
 > **注意**：仅在 Claude **不使用** `--dangerously-skip-permissions` 时生效。默认的 `start.sh --new` 使用 skip-permissions，因此权限 hook 不会触发。
-
-- 120 秒超时，超时后回退到终端对话框
-- 显示工具名称和详情（Bash 显示命令，Write/Edit 显示文件路径）
 
 安装：`./scripts/start.sh --setup-hook`（随其他 hooks 一起安装）。
 

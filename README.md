@@ -15,7 +15,7 @@ Telegram bot bridge for Claude Code. Full bidirectional sync between desktop and
 - **Cross-project switching** — Browse projects from Telegram, bridge handles `cd` + Claude restart automatically
 - **Three-state sync** — Active / Paused / Terminated, with logs always recording regardless of state
 - **tmux integration** — Mouse scrollback, 10000-line history, reliable session tracking
-- **Remote permission** — When Claude requests tool permission, Allow/Deny buttons appear in Telegram — no need to return to the desktop terminal
+- **Remote permission** — When Claude requests tool permission, the raw CC request is forwarded to Telegram — reply directly to respond
 - **Local alarm** — Plays a sound when Claude stops (task done or needs input), so you never miss it while in another window
 
 ## Requirements
@@ -154,20 +154,17 @@ Logs **always** record to `~/.claude/logs/` regardless of sync state.
 
 ## Remote Permission Control
 
-When Claude requests tool permission (e.g. running a command, writing a file), **Allow** and **Deny** buttons appear directly in Telegram. Click to respond — no need to go back to the desktop terminal.
+When Claude requests tool permission (e.g. running a command, writing a file), the raw CC permission request is forwarded directly to Telegram. Claude falls back to its terminal dialog, and you reply in Telegram (y/n/a) — the bridge sends your response to tmux.
 
 > **Note**: This only works when Claude is started **without** `--dangerously-skip-permissions`. The default `start.sh --new` uses skip-permissions, so permission hooks won't trigger in that mode.
 
 How it works:
 
 ```
-Claude needs permission → PermissionRequest hook → Telegram [✅ Allow] [❌ Deny]
-    ↕ (file IPC)
-Bridge ← user clicks button → writes response → hook reads → Claude continues
+Claude needs permission → PermissionRequest hook → forwards raw CC JSON to Telegram
+  → Hook exits (no decision) → CC shows terminal dialog (y/n/a)
+  → User replies in Telegram → bridge sends to tmux → CC reads it
 ```
-
-- 120-second timeout — falls back to terminal dialog if no response
-- Shows tool name and details (command for Bash, file path for Write/Edit)
 
 Setup: `./scripts/start.sh --setup-hook` (included automatically with other hooks).
 

@@ -322,6 +322,22 @@ class TestPermissionHookIntegration:
         assert "jq" in content
         assert "tool_name" in content
 
+    def test_handle_permission_forwards_raw_json(self):
+        """Hook forwards raw CC JSON to Telegram without custom formatting."""
+        content = (PROJECT_DIR / "hooks/handle-permission.sh").read_text()
+        assert "json.dumps(cc_data" in content or "raw_input" in content
+
+    def test_handle_permission_no_decision_output(self):
+        """Hook exits without outputting a decision — CC falls back to terminal dialog."""
+        content = (PROJECT_DIR / "hooks/handle-permission.sh").read_text()
+        # Should NOT contain hookSpecificOutput (no decision)
+        assert "hookSpecificOutput" not in content
+
+    def test_handle_permission_supports_ask_user_question(self):
+        """Hook formats AskUserQuestion tool specially with options."""
+        content = (PROJECT_DIR / "hooks/handle-permission.sh").read_text()
+        assert "AskUserQuestion" in content
+
     def test_install_copies_permission_hook(self):
         content = (PROJECT_DIR / "scripts/install.sh").read_text()
         assert "handle-permission.sh" in content
