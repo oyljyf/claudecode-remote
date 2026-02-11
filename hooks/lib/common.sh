@@ -10,10 +10,12 @@ SESSION_CHAT_MAP_FILE=~/.claude/session_chat_map.json
 CURRENT_SESSION_FILE=~/.claude/current_session_id
 SYNC_DISABLED_FILE=~/.claude/telegram_sync_disabled
 SYNC_PAUSED_FILE=~/.claude/telegram_sync_paused
-PERM_PENDING_FILE=~/.claude/pending_permission.json
-PERM_RESPONSE_FILE=~/.claude/permission_response.json
 LOG_DIR=~/.claude/logs
 LOG_FILE="$LOG_DIR/cc_$(date +${DEFAULT_LOG_DATE_FORMAT}).log"
+SOUND_DIR="${SOUND_DIR:-$HOME/.claude/sounds}"
+SOUND_DONE="${SOUND_DONE:-done.mp3}"
+SOUND_ALERT="${SOUND_ALERT:-alert.mp3}"
+ALARM_VOLUME="${ALARM_VOLUME:-0.5}"
 
 # Ensure log directory exists
 mkdir -p "$LOG_DIR"

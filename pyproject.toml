@@ -11,5 +11,8 @@ test = ["pytest>=7.0"]
 [tool.setuptools]
 py-modules = ["bridge"]
 
+[tool.pytest.ini_options]
+pythonpath = [".", "tests"]
+
 [project.scripts]
 claudecode-remote = "bridge:main"

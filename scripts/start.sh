@@ -14,6 +14,8 @@
 #   ./scripts/start.sh --setup-hook - Setup hook configuration
 #   ./scripts/start.sh --sync       - Show how to sync desktop and Telegram
 #   ./scripts/start.sh --terminate  - Stop all bridge processes and disable sync
+#   ./scripts/start.sh --stop-sync  - Pause sync locally (no bridge needed)
+#   ./scripts/start.sh --resume-sync - Resume sync locally
 #   ./scripts/start.sh --help       - Show this help
 
 set -e
@@ -36,6 +38,8 @@ ATTACH_SESSION=false
 VIEW_OUTPUT=false
 DETACH_SESSION=false
 TERMINATE_ALL=false
+STOP_SYNC=false
+RESUME_SYNC=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -57,6 +61,8 @@ while [[ $# -gt 0 ]]; do
         --detach) DETACH_SESSION=true; shift ;;
         --view) VIEW_OUTPUT=true; shift ;;
         --terminate) TERMINATE_ALL=true; shift ;;
+        --stop-sync) STOP_SYNC=true; shift ;;
+        --resume-sync) RESUME_SYNC=true; shift ;;
         *) shift ;;
     esac
 done
@@ -79,6 +85,8 @@ show_help() {
     echo "  --setup-hook  Setup Claude Stop hook for Telegram"
     echo "  --sync        Show how to sync desktop and Telegram sessions"
     echo "  --terminate   Stop all bridge processes and disable sync"
+    echo "  --stop-sync   Pause sync locally (no bridge needed)"
+    echo "  --resume-sync Resume sync locally"
     echo "  --help, -h    Show this help"
     echo ""
     echo "Environment Variables:"
@@ -186,6 +194,26 @@ if $TERMINATE_ALL; then
     echo -e "    ${GREEN}rm ~/.claude/telegram_sync_disabled${NC}"
     echo -e "    Or send ${GREEN}/start${NC} in Telegram"
     echo ""
+    exit 0
+fi
+
+# ============================================
+# Stop Sync (pause locally, no bridge needed)
+# ============================================
+if $STOP_SYNC; then
+    echo "$(date +%s)" > "$SYNC_PAUSED_FILE"
+    rm -f "$PENDING_FILE"
+    print_status "Sync paused (hooks will log only, not send to Telegram)"
+    echo "  To resume: ./scripts/start.sh --resume-sync"
+    exit 0
+fi
+
+# ============================================
+# Resume Sync (clear pause/disabled flags)
+# ============================================
+if $RESUME_SYNC; then
+    rm -f "$SYNC_PAUSED_FILE" "$SYNC_DISABLED_FILE"
+    print_status "Sync resumed"
     exit 0
 fi
 
@@ -374,6 +402,13 @@ setup_hook() {
         print_status "Hook script (permission) copied"
     fi
 
+    # Copy notification hook
+    if [ -f "hooks/send-notification-to-telegram.sh" ]; then
+        cp hooks/send-notification-to-telegram.sh ~/.claude/hooks/
+        chmod +x ~/.claude/hooks/send-notification-to-telegram.sh
+        print_status "Hook script (notification) copied"
+    fi
+
     # Copy sounds directory
     if [ -d "sounds" ]; then
         mkdir -p ~/.claude/sounds
@@ -405,7 +440,7 @@ setup_hook() {
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/play-alarm.sh"
+            "command": "~/.claude/hooks/play-alarm.sh done"
           }
         ]
       }
@@ -416,7 +451,7 @@ setup_hook() {
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/play-alarm.sh"
+            "command": "~/.claude/hooks/play-alarm.sh alert"
           }
         ]
       }
@@ -447,27 +482,18 @@ setup_hook() {
   }
 }'
 
-    if [ -f "$SETTINGS_FILE" ]; then
-        if grep -q "send-to-telegram" "$SETTINGS_FILE" 2>/dev/null; then
-            print_status "settings.json already has hook configured"
-            # Add alarm hook if missing
-            if ! grep -q "play-alarm" "$SETTINGS_FILE" 2>/dev/null && command -v jq &>/dev/null; then
-                jq '.hooks.Stop += [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/play-alarm.sh"}]}] | .hooks.Notification = [{"matcher": "permission_prompt|elicitation_dialog", "hooks": [{"type": "command", "command": "~/.claude/hooks/play-alarm.sh"}]}]' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
-                print_status "Alarm hook added to settings.json (Stop + Notification)"
-            fi
-            # Add permission hook if missing
-            if ! grep -q "handle-permission" "$SETTINGS_FILE" 2>/dev/null && command -v jq &>/dev/null; then
-                jq '.hooks.PermissionRequest = [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/handle-permission.sh", "timeout": 120}]}]' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
-                print_status "Permission hook added to settings.json"
-            fi
-        else
-            print_warning "settings.json exists, please manually add hooks config"
-            echo ""
-            echo "Add this to your ~/.claude/settings.json:"
-            echo ""
-            echo "$HOOK_CONFIG"
-            echo ""
-        fi
+    if [ -f "$SETTINGS_FILE" ] && command -v jq &>/dev/null; then
+        # Always overwrite hooks section with full config
+        HOOKS_JSON=$(echo "$HOOK_CONFIG" | jq '.hooks')
+        jq --argjson hooks "$HOOKS_JSON" '.hooks = $hooks' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+        print_status "settings.json hooks updated"
+    elif [ -f "$SETTINGS_FILE" ]; then
+        print_warning "jq not found, cannot update settings.json automatically"
+        echo ""
+        echo "Please ensure your ~/.claude/settings.json hooks section matches:"
+        echo ""
+        echo "$HOOK_CONFIG"
+        echo ""
     else
         echo "$HOOK_CONFIG" > "$SETTINGS_FILE"
         print_status "settings.json created with hook config"
@@ -849,6 +875,7 @@ echo -e "    /escape     Interrupt Claude (Escape)"
 echo -e "    /resume     Resume a session"
 echo -e "    /projects   Browse projects"
 echo -e "    /status     Check status"
+echo -e "    /report     Token usage report"
 echo ""
 echo -e "  ${CYAN}tmux Controls (from another terminal):${NC}"
 echo -e "    ${GREEN}./scripts/start.sh --detach${NC}  Detach from tmux"

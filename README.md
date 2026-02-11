@@ -13,10 +13,10 @@ Telegram bot bridge for Claude Code. Full bidirectional sync between desktop and
 - **Bidirectional sync** — Desktop Claude responses + user input synced to Telegram via hooks; Telegram messages injected into desktop Claude via bridge
 - **Auto-binding** — First Telegram message auto-binds the session, no manual `/bind` needed
 - **Cross-project switching** — Browse projects from Telegram, bridge handles `cd` + Claude restart automatically
-- **Three-state sync** — Active / Paused / Terminated, with logs always recording regardless of state
+- **Three-state sync** — Active / Paused / Terminated, with local logs always recording regardless of sync state
 - **tmux integration** — Mouse scrollback, 10000-line history, reliable session tracking
-- **Remote permission** — When Claude requests tool permission, the raw CC request is forwarded to Telegram — reply directly to respond
-- **Local alarm** — Plays a sound when Claude stops (task done or needs input), so you never miss it while in another window
+- **Remote permission** — When Claude requests tool permission, formatted info is forwarded to Telegram; CC dialog options (plan approval, questions) auto-forwarded as clickable buttons
+- **Local alarm** — Plays different sounds for task completion (`done.mp3`) and user action needed (`alert.mp3`), so you never miss it while in another window
 
 ## Requirements
 
@@ -122,6 +122,8 @@ Resume with `/start`, `/resume`, or `/continue` — all clear the paused/termina
 ./scripts/start.sh --detach     # detach from tmux (run from another terminal)
 ./scripts/start.sh --view       # view recent Claude output without attaching
 ./scripts/start.sh --terminate  # stop all processes and disable sync
+./scripts/start.sh --stop-sync  # pause sync locally (no bridge needed)
+./scripts/start.sh --resume-sync # resume sync locally
 ```
 
 > Since Claude Code captures most keybindings, use `--detach` from another terminal instead of the tmux prefix key.
@@ -151,24 +153,32 @@ Logs **always** record to `~/.claude/logs/` regardless of sync state.
 | `/clear`         | Clear conversation                                   |
 | `/status`        | Check tmux, sync, and binding status                 |
 | `/loop <prompt>` | Ralph Loop: auto-iteration mode                      |
+| `/report`        | Token usage report with cost estimation, bars, trend |
 
 ## Remote Permission Control
 
-When Claude requests tool permission (e.g. running a command, writing a file), the raw CC permission request is forwarded directly to Telegram. Claude falls back to its terminal dialog, and you reply in Telegram (y/n/a) — the bridge sends your response to tmux.
+When Claude requests tool permission, the PermissionRequest hook formats the request by tool type and sends it to Telegram with an inline keyboard:
+
+- **Edit / Write**: shows file path + Yes / Yes to all / No buttons
+- **Bash**: shows command (truncated) + Yes / Yes to all / No buttons
+- **AskUserQuestion**: shows question + option buttons
+- **Other tools**: shows tool name + Yes / Yes to all / No buttons
+
+Tap a button to select — the bridge navigates the CC terminal dialog via Down+Enter keystrokes.
 
 > **Note**: This only works when Claude is started **without** `--dangerously-skip-permissions`. The default `start.sh --new` uses skip-permissions, so permission hooks won't trigger in that mode.
 
 How it works:
 
 ```
-Claude needs permission → PermissionRequest hook → forwards raw CC JSON to Telegram
-  → Hook exits (no decision) → CC shows terminal dialog (y/n/a)
-  → User replies in Telegram → bridge sends to tmux → CC reads it
+Claude needs permission → PermissionRequest hook → formats tool info + buttons to Telegram
+  → User taps button → bridge sends Down+Enter to tmux → CC selects option
 ```
 
 Setup: `./scripts/start.sh --setup-hook` (included automatically with other hooks).
 
 ## Logs
+Keep logging even stop or terminate telegram sync.
 
 | Log Type  | Path                             | Description         |
 | --------- | -------------------------------- | ------------------- |
@@ -184,22 +194,31 @@ bash ./scripts/clean-logs.sh 7                # clean logs older than 7 days
 
 ## Local Alarm
 
-A sound plays to alert you whenever Claude needs your attention, even if you're in another window or tmux session.
+Different sounds play depending on the event, so you can tell what happened without switching windows.
 
-The alarm triggers on:
+| Hook Event     | Sound File  | When it fires                                         |
+| -------------- | ----------- | ----------------------------------------------------- |
+| `Stop`         | `done.mp3`  | Claude finishes a response (task done or needs input) |
+| `Notification` | `alert.mp3` | Claude asks a question or requests tool permission    |
 
-| Hook Event     | When it fires                                         |
-| -------------- | ----------------------------------------------------- |
-| `Stop`         | Claude finishes a response (task done or needs input) |
-| `Notification` | Claude asks a question or requests tool permission    |
-
-Place your sound file at `sounds/alarm.mp3` in the project directory, then run `./scripts/start.sh --setup-hook` to install it.
+Place your sound files in the project's `sounds/` directory (`done.mp3` and `alert.mp3`), then run `./scripts/start.sh --setup-hook` to install them to `~/.claude/sounds/`.
 
 ```bash
 touch ~/.claude/alarm_disabled     # disable alarm
 rm ~/.claude/alarm_disabled        # enable alarm
-export ALARM_VOLUME=0.3            # adjust volume (0.0-1.0)
+export ALARM_VOLUME=0.3            # adjust volume (0.0-1.0, default 0.5)
 ```
+
+Sound configuration in `config.env`:
+
+```env
+DEFAULT_SOUND_DIR=~/.claude/sounds
+DEFAULT_SOUND_DONE=done.mp3
+DEFAULT_SOUND_ALERT=alert.mp3
+DEFAULT_ALARM_VOLUME=0.5
+```
+
+Override at runtime via environment variables: `SOUND_DIR`, `SOUND_DONE`, `SOUND_ALERT`, `ALARM_VOLUME`.
 
 ## Uninstall
 
@@ -217,7 +236,7 @@ export ALARM_VOLUME=0.3            # adjust volume (0.0-1.0)
 | Component | Files removed                                                                                                   |
 | --------- | --------------------------------------------------------------------------------------------------------------- |
 | Telegram  | hooks (`send-*-telegram.sh`, `handle-permission.sh`), bridge state files, env vars, webhook, processes, `.venv` |
-| Alarm     | hook (`play-alarm.sh`), `~/.claude/sounds/`, `alarm_disabled`                                                   |
+| Alarm     | hook (`play-alarm.sh`), `~/.claude/sounds/` (`done.mp3`, `alert.mp3`), `alarm_disabled`                         |
 | Shared    | `hooks/lib/` (when both removed), `settings.json` hook config                                                   |
 
 **What stays:** Claude Code sessions (`~/.claude/projects/`), Claude Code itself, system deps (unless confirmed).
@@ -264,7 +283,7 @@ After restart, bridge, cloudflared tunnel, and Telegram webhook will automatical
 | Bridge Server      | Python (stdlib only)                                          |
 | Tunnel             | Cloudflare Quick Tunnels                                      |
 | Session Management | tmux                                                          |
-| Hooks              | Claude Code Stop / UserPromptSubmit / PermissionRequest hooks |
+| Hooks              | Claude Code Stop / UserPromptSubmit / Notification / PermissionRequest hooks |
 | Bot API            | Telegram Bot API                                              |
 
 ## Documentation

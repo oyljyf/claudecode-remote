@@ -29,8 +29,6 @@ SESSION_CHAT_MAP_FILE=~/.claude/session_chat_map.json
 CURRENT_SESSION_FILE=~/.claude/current_session_id
 SYNC_DISABLED_FILE=~/.claude/telegram_sync_disabled
 SYNC_PAUSED_FILE=~/.claude/telegram_sync_paused
-PERM_PENDING_FILE=~/.claude/pending_permission.json
-PERM_RESPONSE_FILE=~/.claude/permission_response.json
 LOG_DIR=~/.claude/logs
 LOG_FILE="$LOG_DIR/cc_$(date +${DEFAULT_LOG_DATE_FORMAT}).log"
 

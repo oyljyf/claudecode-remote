@@ -75,14 +75,15 @@ grep -rn "YOUR_BOT_TOKEN_HERE" --include="*.sh" .
 
 | File | Purpose |
 |------|---------|
-| `config.env` | Shared defaults: `DEFAULT_PORT`, `DEFAULT_TMUX_SESSION`, `DEFAULT_LOG_DATE_FORMAT` |
+| `config.env` | Shared defaults: `DEFAULT_PORT`, `DEFAULT_TMUX_SESSION`, `DEFAULT_LOG_DATE_FORMAT`, `DEFAULT_SOUND_DIR`, `DEFAULT_SOUND_DONE`, `DEFAULT_SOUND_ALERT`, `DEFAULT_ALARM_VOLUME` |
 | `bridge.py` | HTTP server: Telegram webhooks, tmux communication, session management, project navigation |
 | `hooks/lib/common.sh` | Shared hook library: Telegram token, file paths, helper functions |
 | `hooks/send-to-telegram.sh` | Stop hook: sends Claude responses to Telegram, always logs |
 | `hooks/send-input-to-telegram.sh` | UserPromptSubmit hook: syncs desktop input to Telegram, always logs |
-| `hooks/handle-permission.sh` | PermissionRequest hook: forwards permission requests to Telegram, file IPC with bridge |
-| `hooks/play-alarm.sh` | Stop hook: plays alarm sound when Claude stops (afplay/paplay/aplay) |
-| `sounds/` | Sound files directory; `alarm.mp3` copied to `~/.claude/sounds/` on install |
+| `hooks/handle-permission.sh` | PermissionRequest hook: AskUserQuestion → Telegram inline keyboard; other tools (Edit/Write/Bash/etc.) → formatted info + 3-button keyboard (Yes/Yes to all/No) via `askq:` callbacks |
+| `hooks/send-notification-to-telegram.sh` | Notification hook: reads transcript for AskUserQuestion options → Telegram inline keyboard |
+| `hooks/play-alarm.sh` | Stop/Notification hook: plays sound via `$1` arg (`done` or `alert`), reads `SOUND_DIR`/`SOUND_DONE`/`SOUND_ALERT` from env |
+| `sounds/` | Sound files directory; `done.mp3` + `alert.mp3` copied to `~/.claude/sounds/` on install |
 | `scripts/lib/common.sh` | Shared script library: colors, print functions, process helpers, file paths |
 | `scripts/start.sh` | Startup script: tmux/tunnel/webhook management |
 | `scripts/install.sh` | One-command installation |
@@ -117,9 +118,8 @@ Claude Code encodes project paths: `/Users/foo/my-app` → `-Users-foo-my-app`
 | `~/.claude/telegram_sync_disabled` | Terminated state flag |
 | `~/.claude/telegram_sync_paused` | Paused state flag |
 | `~/.claude/alarm_disabled` | Alarm disabled flag |
-| `~/.claude/sounds/alarm.mp3` | Alarm sound file |
-| `~/.claude/pending_permission.json` | Pending permission request (hook → bridge IPC) |
-| `~/.claude/permission_response.json` | Permission response (bridge → hook IPC) |
+| `~/.claude/sounds/done.mp3` | Sound for task completion (Stop hook) |
+| `~/.claude/sounds/alert.mp3` | Sound for user action needed (Notification hook) |
 
 ### Session ID Detection (Priority Order)
 
@@ -153,6 +153,12 @@ Claude Code encodes project paths: `/Users/foo/my-app` → `-Users-foo-my-app`
 | `get_projects()` | List projects with session counts |
 | `get_sessions_for_project()` | List sessions for a specific project |
 | `project_hash()` / `project_from_hash()` | Short hash for callback_data (64-byte limit) |
+| `scan_token_usage()` | Single-pass scan of all JSONL files for token usage stats (today/yesterday/7d/30d, by_model/by_model_7d/by_model_30d with input/output split, session_project mapping) |
+| `format_token_report()` | Format token usage data: per-line cost (today/week/month), percentage bars, today vs yesterday comparison, cache hit rate |
+| `shorten_model_name()` | Convert model ID to short display name |
+| `_estimate_cost()` | Estimate USD cost for given model and token counts (Opus $15/$75, Sonnet $3/$15, Haiku $0.25/$1.25 per 1M) |
+| `_bar()` | Render percentage bar (██░░) |
+| `_change_indicator()` | Today vs yesterday ↑/↓/→ indicator |
 
 ## Telegram Commands
 
@@ -169,6 +175,7 @@ Claude Code encodes project paths: `/Users/foo/my-app` → `-Users-foo-my-app`
 | `/clear` | `handle_message` | Send /clear to Claude |
 | `/status` | `handle_message` | Show tmux, session, sync, binding status |
 | `/loop <prompt>` | `handle_message` | Ralph Loop: auto-iteration |
+| `/report` | `handle_message` | Token usage report: today vs yesterday, cost estimation, by model/project with bars, top 3 sessions with project names, cache hit rate |
 
 ### Callback Data Format
 
@@ -187,6 +194,8 @@ Telegram callback_data has 64-byte limit. Uses short hashes for project IDs:
 | `--detach` | Detach clients from tmux |
 | `--view` | View tmux output without attaching |
 | `--terminate` | Kill all processes + disable sync |
+| `--stop-sync` | Pause sync locally (no bridge needed) |
+| `--resume-sync` | Resume sync locally (clear pause/disabled flags) |
 | `--setup-hook` | Configure Claude hooks |
 | `--check` | Verify configuration |
 
@@ -230,19 +239,21 @@ User types in Claude Code
 Claude responds/stops
   → Stop hook fires (two hooks run):
     1. send-to-telegram.sh → extract text, log, send to Telegram
-    2. play-alarm.sh → play ~/.claude/sounds/alarm.mp3 (background)
+    2. play-alarm.sh done → play ~/.claude/sounds/done.mp3 (background)
 
-Claude asks question / requests permission
-  → Notification hook fires (matcher: permission_prompt|elicitation_dialog):
-    play-alarm.sh → play ~/.claude/sounds/alarm.mp3 (background)
-  → Alarm skipped if: no sound file, alarm_disabled exists, or ALARM_ENABLED=false
+Claude asks question (AskUserQuestion)
+  → Notification hook fires (elicitation_dialog):
+    1. play-alarm.sh alert → play alert.mp3 (background)
+    2. send-notification-to-telegram.sh → read transcript → extract options → inline keyboard (askq:)
+  → User clicks button → bridge Down+Enter → CC TUI selects option
 
 Claude requests tool permission (PermissionRequest)
   → handle-permission.sh hook fires
-  → Forward raw CC JSON to Telegram (no formatting, no buttons)
-  → Exit immediately (no decision output)
-  → CC falls back to terminal dialog (y/n/a)
-  → User replies in Telegram → bridge sends to tmux → CC reads it
+  → If AskUserQuestion: format options → Telegram inline keyboard (askq:)
+  → If other tool (Edit/Write/Bash/etc.): format tool info → 3-button keyboard (Yes/Yes to all/No) via askq:
+  → Notification hook fires (alarm only, no send-notification-to-telegram.sh):
+    1. play-alarm.sh alert → play alert.mp3 (background)
+  → User taps button → bridge sends Down+Enter to tmux → CC selects option
 ```
 
 ### Cross-Project Session Switch
@@ -273,7 +284,8 @@ User selects session from different project (via /projects or /resume)
 - Hooks are bash scripts with embedded Python for Telegram API
 - Shared config (file paths, token) lives in `hooks/lib/common.sh` and `scripts/lib/common.sh`
 - Token placeholder (`YOUR_BOT_TOKEN_HERE`) is defined in `hooks/lib/common.sh` only; install/setup scripts replace it there
-- Shared defaults (`DEFAULT_PORT`, `DEFAULT_TMUX_SESSION`, `DEFAULT_LOG_DATE_FORMAT`) are defined in `config.env`; both `scripts/lib/common.sh` and `hooks/lib/common.sh` load from it; `start.sh` uses `PORT=${PORT:-$DEFAULT_PORT}`; `bridge.py` reads `PORT` from env
+- Shared defaults (`DEFAULT_PORT`, `DEFAULT_TMUX_SESSION`, `DEFAULT_LOG_DATE_FORMAT`, `DEFAULT_SOUND_*`, `DEFAULT_ALARM_VOLUME`) are defined in `config.env`; both `scripts/lib/common.sh` and `hooks/lib/common.sh` load from it; `start.sh` uses `PORT=${PORT:-$DEFAULT_PORT}`; `bridge.py` reads `PORT` from env
+- Sound config: `hooks/lib/common.sh` defines `SOUND_DIR`, `SOUND_DONE`, `SOUND_ALERT`, `ALARM_VOLUME` with defaults matching `config.env`; `play-alarm.sh` accepts `$1` (`done`/`alert`) to select which sound to play
 - Session files are JSONL format (one JSON object per line)
 - Cloudflare Quick Tunnels provide HTTPS endpoint for webhooks
 - Session poller runs as background daemon thread

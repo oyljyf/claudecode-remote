@@ -7,10 +7,10 @@
 - **双向同步**：桌面 Claude 回复和用户输入自动同步到 Telegram；Telegram 消息自动注入桌面 Claude
 - **自动绑定**：首条消息自动绑定 session，无需手动 `/bind`
 - **跨项目切换**：从 Telegram 浏览不同项目并切换 session，bridge 自动处理 `cd` + 重启
-- **三态同步**：Active（活跃）/ Paused（暂停）/ Terminated（断开），日志始终记录
+- **三态同步**：Active（活跃）/ Paused（暂停）/ Terminated（断开），本地日志始终记录
 - **tmux 滚动**：支持鼠标滚动和 10000 行历史记录
-- **远程权限控制**：Claude 请求工具权限时，CC 原始请求直接转发到 Telegram，在 Telegram 回复即可
-- **本地提醒音**：Claude 停止时（任务完成或等待输入）播放声音，切到其他窗口也不会错过
+- **远程权限控制**：Claude 请求工具权限时，按工具类型格式化转发到 Telegram；CC 对话框选项（plan approval、提问等）自动转发为可点击按钮
+- **本地提醒音**：任务完成播放 `done.mp3`，需要操作播放 `alert.mp3`，切到其他窗口也不会错过
 
 ## 安装
 
@@ -58,6 +58,8 @@ source ~/.zshrc  # 或 source ~/.bashrc
 ./scripts/start.sh --detach     # 从另一个终端脱离 tmux
 ./scripts/start.sh --view       # 查看 Claude 最近输出（不 attach）
 ./scripts/start.sh --terminate  # 终止所有进程并禁用同步
+./scripts/start.sh --stop-sync  # 本地暂停同步（无需 bridge 运行）
+./scripts/start.sh --resume-sync # 本地恢复同步
 ```
 
 ### Telegram 端
@@ -74,6 +76,7 @@ source ~/.zshrc  # 或 source ~/.bashrc
 /clear         # 清空对话
 /status        # 查看 tmux、同步、绑定状态
 /loop <prompt> # Ralph Loop：自动迭代模式
+/report        # Token 用量报告（成本估算、趋势对比、缓存命中率）
 ```
 
 完整命令说明见 [启动指南](start.md)。
@@ -82,7 +85,14 @@ source ~/.zshrc  # 或 source ~/.bashrc
 
 ### 远程权限控制
 
-当 Claude 请求工具权限时（如执行命令、写文件），CC 原始请求内容直接转发到 Telegram。Hook 不做决定，CC 回退到终端对话框，你在 Telegram 回复 y/n/a 即可。
+当 Claude 请求工具权限时，PermissionRequest hook 按工具类型格式化并发送到 Telegram，附带 inline keyboard 按钮：
+
+- **Edit / Write**：显示文件路径 + Yes / Yes to all / No 按钮
+- **Bash**：显示命令（截断）+ Yes / Yes to all / No 按钮
+- **AskUserQuestion**：显示问题 + 选项按钮
+- **其他工具**：显示工具名 + Yes / Yes to all / No 按钮
+
+点击按钮即可选择，bridge 通过 Down+Enter 键盘导航在 CC 终端中选中对应选项。
 
 > **注意**：仅在 Claude **不使用** `--dangerously-skip-permissions` 时生效。默认的 `start.sh --new` 使用 skip-permissions，因此权限 hook 不会触发。
 
@@ -91,13 +101,12 @@ source ~/.zshrc  # 或 source ~/.bashrc
 ---
 
 ### 日志管理
+持续记录日志，即使在停止或断开与 Telegram 的连接同步状态下。
 
 | 日志类型 | 路径                             | 说明            |
 | -------- | -------------------------------- | --------------- |
 | 对话日志 | `~/.claude/logs/cc_MMDDYYYY.log` | 每日对话记录    |
 | 调试日志 | `~/.claude/logs/debug.log`       | Bridge 调试信息 |
-
-日志在 Paused 和 Terminated 状态下仍然记录。
 
 ```bash
 # 查看今天的对话日志
@@ -115,22 +124,31 @@ bash ./scripts/clean-logs.sh       # 默认保留 30 天
 
 ### 本地提醒音
 
-当 Claude 需要你关注时会播放声音提醒，即使你在其他窗口或 tmux session 也不会错过。
+不同事件播放不同声音，无需切换窗口即可分辨发生了什么。
 
-提醒音触发场景：
+| Hook 事件      | 声音文件    | 触发时机                              |
+| -------------- | ----------- | ------------------------------------- |
+| `Stop`         | `done.mp3`  | Claude 完成回复（任务完成或需要输入） |
+| `Notification` | `alert.mp3` | Claude 提问或请求工具权限             |
 
-| Hook 事件      | 触发时机                              |
-| -------------- | ------------------------------------- |
-| `Stop`         | Claude 完成回复（任务完成或需要输入） |
-| `Notification` | Claude 提问或请求工具权限             |
-
-将声音文件放在项目目录的 `sounds/alarm.mp3`，然后运行 `./scripts/start.sh --setup-hook` 安装。
+将声音文件放在项目目录的 `sounds/` 下（`done.mp3` 和 `alert.mp3`），然后运行 `./scripts/start.sh --setup-hook` 安装到 `~/.claude/sounds/`。
 
 ```bash
 touch ~/.claude/alarm_disabled     # 禁用提醒音
 rm ~/.claude/alarm_disabled        # 启用提醒音
-export ALARM_VOLUME=0.3            # 调节音量 (0.0-1.0)
+export ALARM_VOLUME=0.3            # 调节音量 (0.0-1.0，默认 0.5)
 ```
+
+声音配置在 `config.env` 中：
+
+```env
+DEFAULT_SOUND_DIR=~/.claude/sounds
+DEFAULT_SOUND_DONE=done.mp3
+DEFAULT_SOUND_ALERT=alert.mp3
+DEFAULT_ALARM_VOLUME=0.5
+```
+
+运行时可通过环境变量覆盖：`SOUND_DIR`、`SOUND_DONE`、`SOUND_ALERT`、`ALARM_VOLUME`。
 
 ## 环境变量
 

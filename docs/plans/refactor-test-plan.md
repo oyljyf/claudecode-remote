@@ -1,8 +1,8 @@
 # Refactoring & Unit Test Plan
 
-- Version: 1.0.3
-- Updated at: 2026-02-10 08:20:00
-- Status: Implemented (162 tests)
+- Version: 1.0.5
+- Updated at: 2026-02-11 09:16:10
+- Status: Implemented (237 tests)
 
 ---
 
@@ -132,9 +132,17 @@ Validate non-empty, length < 128.
 | `TestResumeCommand` | keyboard with sessions; no sessions |
 | `TestProjectsCommand` | keyboard with projects; no projects |
 | `TestRegularMessage` | active->tmux; paused->reject; terminated->reject; auto-binds |
-| `TestPermissionCallback` | allow; deny; expired; no pending; allow no tmux needed |
-| `TestPermissionEndToEnd` | allow produces correct JSON; deny produces correct JSON; response file cleaned after read; stale response ignored; telegram confirmation message |
+| `TestAskAnswerCallback` | askq first option (Enter only); askq third option (2x Down+Enter); askq no tmux; askq invalid index |
 | `TestParseCallbackData` | valid; empty value; too long; wrong prefix |
+
+### `tests/test_report.py` (~44 tests)
+
+| Test Class | Cases |
+| --- | --- |
+| `TestShortenModelName` | known models (opus, sonnet, haiku); unknown model; empty string |
+| `TestScanTokenUsage` | empty dir; single session; multiple sessions; today/yesterday/7d/30d aggregation; by_model with input/output split; session_project mapping |
+| `TestHelperFunctions` | `_estimate_cost()` for each model tier; `_bar()` rendering; `_change_indicator()` up/down/same |
+| `TestFormatTokenReport` | full report formatting; cost estimation; percentage bars; today vs yesterday comparison; cache hit rate |
 
 ---
 
@@ -176,6 +184,14 @@ Post-refactor regression tests to ensure common.sh usage stays consistent.
 | `TestUninstallComponentFlags` | supports --telegram/--alarm/--all/--keep-deps/--force flags; interactive chooser (Telegram/Alarm/Both); --force defaults both; REMOVE_TELEGRAM/REMOVE_ALARM guards; hooks/lib only when both; selective jq for telegram-only and alarm-only; removes Notification hooks; processes/env vars under telegram guard; --all removes logs; deps only with telegram |
 | `TestCleanLogsScript` | uses -mmin not -mtime; DAYS * 1440 calculation; targets cc_[0-9]{8}.log (MMDDYYYY only); cleans debug.log; default 30 days |
 
+### `tests/test_shell_scripts.py` — Hook Independence, Notification Hook & Sync Consistency
+
+| Test Class | Cases |
+| --- | --- |
+| `TestHooksIndependentOfBridge` | 3 telegram hooks call api.telegram.org not localhost; telegram hooks use $TELEGRAM_BOT_TOKEN not hardcoded; hooks do not depend on bridge |
+| `TestNotificationHookIntegration` | notification hook handles AskUserQuestion; notification hook formats askq inline keyboard |
+| `TestSyncFlagConsistency` | hooks and scripts use same paused flag filename; hooks and scripts use same disabled flag filename; bridge.py uses same flag filenames; all three sources define identical flag paths |
+
 ---
 
 ## NOT Doing (Deferred)
@@ -215,9 +231,8 @@ Post-refactor regression tests to ensure common.sh usage stays consistent.
 
 ## Verification
 
-1. `pytest tests/ -v` -- all 162 tests pass (86 Python + 76 shell script consistency)
+1. `pytest tests/ -v` -- all 237 tests pass
 2. `./scripts/start.sh --new` -> Telegram message -> response back
 3. `./scripts/start.sh --setup-hook` -> hooks + lib copied correctly
 4. Test `/status`, `/stop`, `/escape`, `/resume`, `/projects`, `/continue` from Telegram
 5. Verify logs written when sync paused/terminated
-6. Permission request -> Telegram Allow/Deny buttons -> Claude continues

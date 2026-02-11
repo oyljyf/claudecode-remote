@@ -176,6 +176,13 @@ if $REMOVE_TELEGRAM; then
     else
         print_info "handle-permission.sh not found"
     fi
+
+    if [ -f ~/.claude/hooks/send-notification-to-telegram.sh ]; then
+        rm -f ~/.claude/hooks/send-notification-to-telegram.sh
+        print_status "Removed send-notification-to-telegram.sh"
+    else
+        print_info "send-notification-to-telegram.sh not found"
+    fi
 fi
 
 # ============================================
@@ -238,7 +245,7 @@ if [ -f "$SETTINGS_FILE" ] && command -v jq &>/dev/null; then
     elif $REMOVE_TELEGRAM; then
         # Remove telegram entries, keep alarm
         if grep -q "send-to-telegram" "$SETTINGS_FILE" 2>/dev/null; then
-            jq '.hooks.Stop = [.hooks.Stop[]? | select(.hooks[0]?.command | contains("send-to-telegram") | not)] | del(.hooks.UserPromptSubmit) | del(.hooks.PermissionRequest) | if .hooks.Stop == [] then del(.hooks.Stop) else . end | if .hooks == {} then del(.hooks) else . end' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" 2>/dev/null && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+            jq '.hooks.Stop = [.hooks.Stop[]? | select(.hooks[0]?.command | contains("send-to-telegram") | not)] | del(.hooks.UserPromptSubmit) | del(.hooks.PermissionRequest) | if .hooks.Notification then .hooks.Notification = [.hooks.Notification[]? | .hooks = [.hooks[]? | select(.command | contains("send-notification-to-telegram") | not)] | select(.hooks | length > 0)] else . end | if (.hooks.Notification // []) == [] then del(.hooks.Notification) else . end | if .hooks.Stop == [] then del(.hooks.Stop) else . end | if .hooks == {} then del(.hooks) else . end' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" 2>/dev/null && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
             print_status "Telegram hook config removed from settings.json"
         else
             print_info "No Telegram hook config in settings.json"
@@ -246,7 +253,7 @@ if [ -f "$SETTINGS_FILE" ] && command -v jq &>/dev/null; then
     elif $REMOVE_ALARM; then
         # Remove alarm entries, keep telegram
         if grep -q "play-alarm" "$SETTINGS_FILE" 2>/dev/null; then
-            jq '.hooks.Stop = [.hooks.Stop[]? | select(.hooks[0]?.command | contains("play-alarm") | not)] | del(.hooks.Notification) | if .hooks.Stop == [] then del(.hooks.Stop) else . end | if .hooks == {} then del(.hooks) else . end' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" 2>/dev/null && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+            jq '.hooks.Stop = [.hooks.Stop[]? | select(.hooks[0]?.command | contains("play-alarm") | not)] | if .hooks.Notification then .hooks.Notification = [.hooks.Notification[]? | .hooks = [.hooks[]? | select(.command | contains("play-alarm") | not)] | select(.hooks | length > 0)] else . end | if (.hooks.Notification // []) == [] then del(.hooks.Notification) else . end | if .hooks.Stop == [] then del(.hooks.Stop) else . end | if .hooks == {} then del(.hooks) else . end' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" 2>/dev/null && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
             print_status "Alarm hook config removed from settings.json"
         else
             print_info "No alarm hook config in settings.json"
@@ -271,8 +278,8 @@ if $REMOVE_TELEGRAM; then
         "$SYNC_PAUSED_FILE"
         "$CURRENT_SESSION_FILE"
         "$SESSION_CHAT_MAP_FILE"
-        "$PERM_PENDING_FILE"
-        "$PERM_RESPONSE_FILE"
+        "$HOME/.claude/pending_permission.json"
+        "$HOME/.claude/permission_response.json"
     )
 
     for f in "${state_files[@]}"; do

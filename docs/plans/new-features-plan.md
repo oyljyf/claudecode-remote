@@ -1,8 +1,8 @@
 # 重构版本新增需求文档（PRD）
 
-- Version: 1.0.4
-- Updated at: 2026-02-10 07:46:53
-- Status: ✅ Complete
+- Version: 1.0.6
+- Updated at: 2026-02-11 08:39:05
+- Status: ✅ All Complete
 
 ---
 
@@ -97,36 +97,38 @@
 
 ---
 
-### 问题 6: 本地提醒音 — Claude 需要关注时播放警报 ✅
+### 问题 6: 本地提醒音 — 双声音系统 ✅
 
-**背景**:
-当 Claude 完成任务或需要用户输入时，用户可能不在当前窗口。通过 Claude Code hooks 播放本地声音提醒用户。
+**功能**: Claude 完成任务/需要操作时播放不同声音提醒
 
-**实现方案**: Stop hook + Notification hook（matcher: `permission_prompt|elicitation_dialog`）
+**双声音设计**:
 
+| 场景     | 声音文件    | Hook 事件    | 触发时机             |
+| -------- | ----------- | ------------ | -------------------- |
+| 任务完成 | `done.mp3`  | Stop         | Claude 完成任务      |
+| 需要操作 | `alert.mp3` | Notification | Claude 提问/请求权限 |
+
+**核心配置** (`config.env`):
+```bash
+DEFAULT_SOUND_DIR=~/.claude/sounds
+DEFAULT_SOUND_DONE=done.mp3
+DEFAULT_SOUND_ALERT=alert.mp3
+DEFAULT_ALARM_VOLUME=0.5
 ```
-Claude stops / asks question / requests permission
-  → play-alarm.sh → afplay/aplay/paplay (background)
-```
 
-**实现细节**: 见 [alarm-hook-plan.md](./spec/alarm-hook-plan.md)
-
-**文件变更**:
-
-| 文件                   | 操作                                  |
-| ---------------------- | ------------------------------------- |
-| `hooks/play-alarm.sh`  | 新建 — alarm hook 脚本                |
-| `sounds/`              | 新建目录 — 预留声音文件位置           |
-| `scripts/install.sh`   | 更新 — 复制 alarm hook + sounds       |
-| `scripts/start.sh`     | 更新 — `--setup-hook` 注册 alarm hook |
-| `scripts/uninstall.sh` | 更新 — 清理 alarm 相关文件            |
+**去重机制**: 
+- Stop hook 触发时播放 `done.mp3`
+- Notification hook 触发时播放 `alert.mp3`
+- **不会重复**: 同一事件只触发对应的一个 hook，通过 hook 事件类型天然去重
 
 **成功标准**:
-- ✅ Claude 完成任务/等待输入时播放提醒音（Stop hook）
-- ✅ Claude 提问/请求权限时播放提醒音（Notification hook）
-- ✅ 不阻塞 hook 执行（后台播放）
+- ✅ 任务完成播放 `done.mp3`，需要操作播放 `alert.mp3`
+- ✅ 同一事件不会播放多个声音
+- ✅ 后台播放不阻塞
 - ✅ 无声音文件时静默跳过
-- ✅ macOS 和 Linux 都支持
+- ✅ 支持 macOS/Linux
+
+**详细设计**: 见 [alarm-hook-plan.md](./spec/alarm-hook-plan.md)
 
 ---
 
@@ -168,6 +170,89 @@ Claude → PermissionRequest hook → Telegram (inline keyboard)
 
 ---
 
+### 问题 8: 本地停止同步机制（不依赖 Bridge） ✅
+
+**背景**:
+Hook 直接调用 Telegram API 不经过 bridge，但 `/stop`/`/terminate` 命令由 bridge 处理创建 flag 文件。Bridge 挂掉后用户在 Telegram 发命令无法被处理，hook 继续发送。
+
+**方案**: 在 `start.sh` 添加 `--stop-sync` 和 `--resume-sync` 选项，直接操作 flag 文件：
+- `--stop-sync`: 创建 `~/.claude/telegram_sync_paused`，清除 pending 文件
+- `--resume-sync`: 删除 `telegram_sync_paused` 和 `telegram_sync_disabled`
+
+**成功标准**:
+- ✅ `--stop-sync` 创建 paused flag 文件
+- ✅ `--resume-sync` 清除两个 flag 文件
+- ✅ 不依赖 bridge 运行
+- ✅ 帮助文本和文档已更新
+
+---
+
+### 问题 9: CC 交互对话转发到 Telegram ✅
+
+**背景**: PermissionRequest 和 AskUserQuestion 走不同的 hook 事件路径，需要分别处理。
+
+**实现方案（双 hook 协作）**:
+
+| Hook                               | 事件                                | 职责                                                      |
+| ---------------------------------- | ----------------------------------- | --------------------------------------------------------- |
+| `handle-permission.sh`             | PermissionRequest                   | 发送工具信息（Bash 命令、Edit 文件等）                    |
+| `send-notification-to-telegram.sh` | Notification (`elicitation_dialog`) | 读 transcript 提取 AskUserQuestion 选项 → inline keyboard |
+
+**事件流**:
+```
+PermissionRequest (Bash/Edit/Write):
+  → handle-permission.sh 发工具信息到 TG → exit 0 → CC 显示终端 y/n/a
+  → 用户在 TG 回复 → bridge 发到 tmux
+
+AskUserQuestion:
+  → CC 自动允许（不走 PermissionRequest）→ Notification (elicitation_dialog) 触发
+  → send-notification-to-telegram.sh 读 transcript → 提取选项 → 发 inline keyboard (askq:)
+  → 用户点按钮 → bridge Down+Enter 导航 CC TUI
+```
+
+**成功标准**:
+- ✅ handle-permission.sh 发工具信息（jq 提取，无 AskUserQuestion 死代码）
+- ✅ send-notification-to-telegram.sh 读 transcript 提取 AskUserQuestion 选项
+- ✅ bridge.py 清理死代码（CB_PERM、PERM_PENDING_FILE、PERM_RESPONSE_FILE）
+- ✅ /escape 能中断 permission dialog（Escape + Ctrl+C）
+
+---
+
+### 问题 10: /report Token 用量报告 ✅
+
+**背景**:
+用户希望从 Telegram 快速查看 token 使用统计，类似 Claude Code 的 `/insights`。
+
+**方案**: 扫描 `~/.claude/projects/{encoded_project_path}/{session_id}.jsonl`，只解析 `type: "assistant"` 中的 `message.usage` 字段。
+
+**输出格式**:
+- 总量：today（含 vs yesterday 趋势 ↑/↓/→）/ 7d / 30d（input + output）
+- 今日预估成本（Opus $15/$75, Sonnet $3/$15, Haiku $0.25/$1.25 per 1M tokens）
+- Cache：today 的 read + write + 命中率百分比
+- By Model (today) + 百分比条 ████░░ + 单模型成本
+- By Project (today) + 百分比条
+- By Session (today, top 3) + 所属项目名
+
+**关键设计决策**:
+- 单次扫描产出所有时间范围（today/yesterday/7d/30d）的数据
+- mtime 预过滤跳过超过 31 天的文件
+- 快速行预检 `'"usage"' not in line` 跳过 JSON 解析
+- "今天"使用本地时区（非 UTC）
+- by_model 存储 input/output 分拆，用于精确成本估算
+- session_project 映射显示 session 所属项目
+- 成本估算基于公开价格表，标注 `~$` 提示为估计值
+- session 只显示 top 3 + 8 字符短 UUID + 项目名
+- 百分比条宽度 6 字符，填充 █ 和空白 ░
+
+**成功标准**:
+- ✅ 44 测试覆盖扫描、格式化、辅助函数
+- ✅ Telegram 发送 `/report` 显示正确格式的用量报告
+- ✅ 出现在 bot menu 中
+
+**详细设计**: 见 [report-plan.md](./spec/report-plan.md)
+
+---
+
 ### 优先级与关键指标
 
 | 优先级 | 任务               | 成功标准                            | 状态 |
@@ -180,6 +265,9 @@ Claude → PermissionRequest hook → Telegram (inline keyboard)
 | **P2** | Uninstall 测试优化 | 完整清理所有资源                    | ✅    |
 | **P1** | 本地提醒音         | Claude 停止/提问/请求权限时播放警报 | ✅    |
 | **P1** | Telegram 权限请求  | 从 Telegram 响应 Claude 的权限请求  | ✅    |
+| **P1** | 本地停止同步       | 不依赖 bridge 即可暂停/恢复同步     | ✅    |
+| **P2** | CC 交互对话转发    | AskUserQuestion → inline keyboard   | ✅    |
+| **P2** | /report 用量报告   | 从 Telegram 查看 token 使用统计     | ✅    |
 
 ---
 
@@ -190,8 +278,11 @@ Claude → PermissionRequest hook → Telegram (inline keyboard)
 3. ✅ 可随时选择并重连旧 session
 4. ✅ Tmux 滚动功能正常
 5. ✅ 完善的卸载功能
-6. ✅ Claude 需要关注时本地声音提醒：Stop + Notification hooks（待用户提供 alarm.mp3）
+6. ✅ Claude 需要关注时本地双声音提醒：`done.mp3`（任务完成）+ `alert.mp3`（需要操作），配置集中在 config.env
 7. ✅ 从 Telegram 远程响应 Claude 的权限请求（PermissionRequest hook）
+8. ✅ 本地停止同步机制（`--stop-sync` / `--resume-sync`，不依赖 bridge）
+9. ✅ CC 交互对话转发（PermissionRequest → 工具信息，AskUserQuestion → 读 transcript → inline keyboard）
+10. ✅ /report 命令查看 token 用量报告（成本估算、趋势对比、百分比条、缓存命中率、session 含项目名）
 
 ---
 
@@ -200,4 +291,4 @@ Claude → PermissionRequest hook → Telegram (inline keyboard)
 - 突出标注了两个关键痛点 (P0)
 - 清晰定义了三种连接控制命令的区别
 - 添加了可量化的成功标准表格
-- 结构更紧凑,减少冗余描述
+- 消除了所有 raw JSON 格式泄露（改为 key-value 格式）

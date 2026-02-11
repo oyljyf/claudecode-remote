@@ -149,37 +149,49 @@ Effects:
 
 **Prerequisite**: Claude started **without** `--dangerously-skip-permissions`, bridge running
 
-When Claude requests permission, the raw CC JSON is forwarded to Telegram. The hook exits without making a decision, so CC falls back to its terminal dialog (y/n/a). You reply in Telegram and the bridge sends your response to tmux.
+Two hooks work together to deliver the full experience:
 
-**Special case — AskUserQuestion**: When Claude asks a question with multiple choice options, Telegram shows formatted options with inline keyboard buttons:
-
-```
-❓ [Next step] How do you want to proceed?
-
-1. Setup hook + restart bridge
-   Run --setup-hook and restart bridge to apply changes now
-2. Update docs + commit
-   Update CLAUDE.md/README docs to reflect the new behavior, then commit
-
-[1. Setup hook + restart bridge]   ← tap to select
-[2. Update docs + commit]          ← tap to select
-```
-
-Tap a button to select — the bridge sends the corresponding keystrokes (Down arrow + Enter) to the CC terminal TUI via tmux.
-
-For other permission requests (Bash, Write, Edit, etc.), the raw JSON is forwarded as-is:
+**Step 1 — PermissionRequest hook** sends formatted tool info to Telegram:
 
 ```
 🔐 Permission Request
 
-{
-  "tool_name": "Bash",
-  "tool_input": {"command": "npm install"},
-  ...
-}
+Tool: Bash
+Description: Install dependencies
+Command: npm install
 ```
 
-CC shows its terminal dialog — reply `y`/`n`/`a` in Telegram to respond.
+Other examples: Edit shows file path + diff snippet, Write/Read shows file path.
+
+**Step 2 — Notification hook** reads CC's actual screen options and sends them as inline keyboard buttons:
+
+```
+ ❯ Yes
+   Yes, and don't ask again for Bash in this session
+   No, and tell Claude why
+
+[Yes]                                          ← tap to select
+[Yes, and don't ask again for Bash...]         ← tap to select
+[No, and tell Claude why]                      ← tap to select
+```
+
+Tap a button — the bridge navigates the CC terminal TUI via Down + Enter keystrokes.
+
+**Also works for AskUserQuestion and plan approval:**
+
+```
+❓ Which library should we use for date formatting?
+
+1. date-fns (Recommended)
+2. dayjs
+3. Intl API
+
+[1. date-fns (Recommended)]    ← tap to select
+[2. dayjs]                     ← tap to select
+[3. Intl API]                  ← tap to select
+```
+
+All options are CC's original labels — no custom buttons, no raw JSON.
 
 > **Note**: Default `start.sh --new` uses `--dangerously-skip-permissions`, which skips all permission checks. To use remote permission, start Claude without that flag.
 
