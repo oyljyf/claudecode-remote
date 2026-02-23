@@ -16,7 +16,8 @@ Telegram bot bridge for Claude Code. Full bidirectional sync between desktop and
 - **Three-state sync** — Active / Paused / Terminated, with local logs always recording regardless of sync state
 - **tmux integration** — Mouse scrollback, 10000-line history, reliable session tracking
 - **Remote permission** — When Claude requests tool permission, formatted info is forwarded to Telegram; CC dialog options (plan approval, questions) auto-forwarded as clickable buttons
-- **Local alarm** — Plays different sounds for task completion (`done.mp3`) and user action needed (`alert.mp3`), so you never miss it while in another window
+- **Local logs** — Auto-summarized Claude code responses and user inputs daily for local session management, with auto-cleanup every 30 days
+- **Local alarm** — Plays different sounds for task completion (`done.mp3`) and user action needed (`alert.mp3`), so you never miss it while in another window (install independently)
 
 ## Requirements
 
@@ -112,7 +113,7 @@ Cross-project switches auto-handle `cd` + Claude restart (1-2 second delay).
 
 Resume with `/start`, `/resume`, or `/continue` — all clear the paused/terminated state.
 
-### Use from desktop
+## Use from desktop
 
 ```bash
 ./scripts/start.sh              # start bridge (tmux must exist)
@@ -136,7 +137,7 @@ Resume with `/start`, `/resume`, or `/continue` — all clear the paused/termina
 | Paused (`/stop`)          | Log only               | Reject with "paused" hint     |
 | Terminated (`/terminate`) | Log only               | Reject with "terminated" hint |
 
-Logs **always** record to `~/.claude/logs/` regardless of sync state.
+Logs **always** record to `~/.claude/logs/` regardless of sync state, and rentain for 30 days.
 
 ## Telegram Commands
 
@@ -188,7 +189,7 @@ Keep logging even stop or terminate telegram sync.
 ```bash
 cat ~/.claude/logs/cc_$(date +%m%d%Y).log   # today's chat log
 tail -f ~/.claude/logs/debug.log              # live debug log
-bash ./scripts/clean-logs.sh                  # clean logs older than 30 days
+bash ./scripts/clean-logs.sh                  # clean logs older than 30 days as default
 bash ./scripts/clean-logs.sh 7                # clean logs older than 7 days
 ```
 
@@ -278,13 +279,13 @@ After restart, bridge, cloudflared tunnel, and Telegram webhook will automatical
 
 ## Tech Stack
 
-| Component          | Technology                                                    |
-| ------------------ | ------------------------------------------------------------- |
-| Bridge Server      | Python (stdlib only)                                          |
-| Tunnel             | Cloudflare Quick Tunnels                                      |
-| Session Management | tmux                                                          |
+| Component          | Technology                                                                   |
+| ------------------ | ---------------------------------------------------------------------------- |
+| Bridge Server      | Python (stdlib only)                                                         |
+| Tunnel             | Cloudflare Quick Tunnels                                                     |
+| Session Management | tmux                                                                         |
 | Hooks              | Claude Code Stop / UserPromptSubmit / Notification / PermissionRequest hooks |
-| Bot API            | Telegram Bot API                                              |
+| Bot API            | Telegram Bot API                                                             |
 
 ## Documentation
 

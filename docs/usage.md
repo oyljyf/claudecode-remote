@@ -149,35 +149,39 @@ Effects:
 
 **Prerequisite**: Claude started **without** `--dangerously-skip-permissions`, bridge running
 
-Two hooks work together to deliver the full experience:
+The **PermissionRequest hook** handles all tools in a single step — formats tool info and sends inline keyboard buttons to Telegram:
 
-**Step 1 — PermissionRequest hook** sends formatted tool info to Telegram:
-
+**For Bash:**
 ```
-🔐 Permission Request
+🔐 Bash:
+npm install
 
-Tool: Bash
-Description: Install dependencies
-Command: npm install
+[Yes]            ← tap to approve
+[Yes to all]     ← approve all future Bash calls
+[No]             ← deny
 ```
 
-Other examples: Edit shows file path + diff snippet, Write/Read shows file path.
-
-**Step 2 — Notification hook** reads CC's actual screen options and sends them as inline keyboard buttons:
-
+**For Edit / Write:**
 ```
- ❯ Yes
-   Yes, and don't ask again for Bash in this session
-   No, and tell Claude why
+🔐 Edit: src/index.ts
 
-[Yes]                                          ← tap to select
-[Yes, and don't ask again for Bash...]         ← tap to select
-[No, and tell Claude why]                      ← tap to select
+[Yes]            ← tap to approve
+[Yes to all]     ← approve all future Edit calls
+[No]             ← deny
+```
+
+**For other tools:**
+```
+🔐 Permission: Read
+
+[Yes]            ← tap to approve
+[Yes to all]
+[No]
 ```
 
 Tap a button — the bridge navigates the CC terminal TUI via Down + Enter keystrokes.
 
-**Also works for AskUserQuestion and plan approval:**
+**AskUserQuestion** is also handled by the same hook, with option buttons:
 
 ```
 ❓ Which library should we use for date formatting?
@@ -190,8 +194,6 @@ Tap a button — the bridge navigates the CC terminal TUI via Down + Enter keyst
 [2. dayjs]                     ← tap to select
 [3. Intl API]                  ← tap to select
 ```
-
-All options are CC's original labels — no custom buttons, no raw JSON.
 
 > **Note**: Default `start.sh --new` uses `--dangerously-skip-permissions`, which skips all permission checks. To use remote permission, start Claude without that flag.
 
